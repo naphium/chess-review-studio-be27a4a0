@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ClientOnly } from "@tanstack/react-router";
 import { Chess } from "chess.js";
-import { Engine, type PositionEval } from "@/lib/engine";
+import { Engine, splitRanges, type PositionEval } from "@/lib/engine";
 import { classifyMove, CLASS_META, formatScore, parsePgn, type Classification, type ParsedGame } from "@/lib/analysis";
 import { bookFlags } from "@/lib/book";
 import { playMoveSound } from "@/lib/sounds";
@@ -92,23 +92,26 @@ export function Analyzer({ defaultSound = true, defaultBlackView = false }: { de
     const id = ++runId.current;
     const eng = engineRef.current;
     if (!eng) { setError("The chess engine is not ready. Please retry."); return; }
-    eng.cancel();
-    poolRef.current.forEach((p) => p.cancel());
-    try {
-    // Parallel full-depth workers; each search clears its hash, so results are identical to a single worker.
     const workers = [eng, ...poolRef.current];
+    workers.forEach((w) => { w.cancel(); w.newGame(); });
+    try {
+    // Parallel full-depth workers. Each takes runs of consecutive positions so its hash
+    // carries over from move to move (faster, same depth); runs are shared out as workers free up.
+    const runs = splitRanges(g.fens.length, workers.length * 3);
     let next = 0;
     await Promise.all(workers.map(async (w) => {
       while (runId.current === id) {
-        const i = next++;
-        if (i >= g.fens.length) return;
-        const r = await w.analyze(g.fens[i]);
-        if (runId.current !== id) return;
-        setEvals((prev) => {
-          const n = [...prev];
-          n[i] = r;
-          return n;
-        });
+        const run = runs[next++];
+        if (!run) return;
+        for (let i = run[0]; i < run[1]; i++) {
+          const r = await w.analyze(g.fens[i]);
+          if (runId.current !== id) return;
+          setEvals((prev) => {
+            const n = [...prev];
+            n[i] = r;
+            return n;
+          });
+        }
       }
     }));
     } catch (e) {

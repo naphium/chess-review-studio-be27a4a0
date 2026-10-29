@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Chess } from "chess.js";
-import { Engine, SEARCH_DEPTH } from "./engine";
+import { Engine, SEARCH_DEPTH, splitRanges } from "./engine";
 
 class FakeWorker {
   static workers: FakeWorker[] = [];
@@ -8,7 +8,8 @@ class FakeWorker {
   onerror: (() => void) | null = null;
   commands: string[] = [];
   constructor() { FakeWorker.workers.push(this); }
-  postMessage(command: string) {
+  postMessage(command: string | object) {
+    if (typeof command !== "string") return; // shared engine-file hand-off
     this.commands.push(command);
     if (command === "uci") queueMicrotask(() => this.emit("uciok"));
     if (command === "isready") queueMicrotask(() => this.emit("readyok"));
@@ -42,6 +43,13 @@ describe("quality-preserving engine", () => {
     await engine.analyze(firstFen);
     expect(worker.commands.filter((c) => c.startsWith("go"))).toHaveLength(2);
     engine.terminate();
+  });
+  it("hands every position to exactly one worker, in consecutive runs", () => {
+    const runs = splitRanges(81, 12);
+    expect(runs[0][0]).toBe(0);
+    expect(runs[runs.length - 1][1]).toBe(81);
+    runs.slice(1).forEach((r, i) => expect(r[0]).toBe(runs[i][1]));
+    expect(splitRanges(3, 12)).toEqual([[0, 1], [1, 2], [2, 3]]);
   });
   it("does not substitute a weak evaluator when the engine cannot load", async () => {
     vi.stubGlobal("Worker", class { constructor() { throw new Error("Unavailable"); } });

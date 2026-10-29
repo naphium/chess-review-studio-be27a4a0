@@ -25,6 +25,25 @@ function uciToSan(fen: string, pv: string[]): string[] {
 // Only completed, full-depth searches are reused across review and exploration.
 const cache = new Map<string, PositionEval>();
 
+// The engine file is downloaded and compiled once per page, then shared with every worker.
+let modulePromise: Promise<WebAssembly.Module | null> | null = null;
+function loadModule(url: string): Promise<WebAssembly.Module | null> {
+  if (!modulePromise) {
+    modulePromise = (async () => {
+      try {
+        if (typeof WebAssembly === "undefined") return null;
+        try { return await WebAssembly.compileStreaming(fetch(url)); }
+        catch {
+          const res = await fetch(url);
+          if (!res.ok) return null;
+          return await WebAssembly.compile(await res.arrayBuffer());
+        }
+      } catch { return null; } // worker then loads the file itself
+    })();
+  }
+  return modulePromise;
+}
+
 export class Engine {
   private worker: Worker | null = null;
   private ready: Promise<boolean>;
@@ -39,7 +58,7 @@ export class Engine {
         const wasmUrl = new URL(engineAsset.url, window.location.origin).href;
         const w = new Worker(`/engine/stockfish-19/stockfish-19-single.js#${encodeURIComponent(wasmUrl)}`);
         this.worker = w;
-        const timer = setTimeout(() => { w.terminate(); this.worker = null; resolve(false); }, 120000);
+        const timer = setTimeout(() => { w.terminate(); this.worker = null; resolve(false); }, 300000);
         w.onmessage = (e) => {
           const msg = String(e.data);
           if (msg === "uciok") {
@@ -54,6 +73,9 @@ export class Engine {
         };
         w.onerror = () => { clearTimeout(timer); w.terminate(); this.worker = null; resolve(false); };
         w.postMessage("uci");
+        loadModule(wasmUrl).then((wasmModule) => {
+          try { w.postMessage({ wasmModule }); } catch { w.postMessage({ wasmModule: null }); }
+        });
       } catch { resolve(false); }
     });
   }
@@ -64,6 +86,13 @@ export class Engine {
   cancel() {
     this.epoch++;
     this.worker?.postMessage("stop");
+  }
+
+  /** Clear the engine's hash before a new game; runs after any active search drains. */
+  newGame() {
+    this.queue = this.queue.then(async () => {
+      if (await this.ready) this.worker?.postMessage("ucinewgame");
+    }).catch(() => undefined);
   }
 
   analyze(fen: string, depth = SEARCH_DEPTH): Promise<PositionEval> {
@@ -135,8 +164,9 @@ export class Engine {
           resolve(result);
         }
       };
-      // Identical policy for every original position; no cloud/local depth mixing.
-      w.postMessage("setoption name Clear Hash");
+      // Same fixed depth for every position. The hash table is kept between consecutive
+      // positions of one game (cleared per game via newGame), which speeds searches
+      // without lowering depth or search quality.
       w.postMessage(`position fen ${fen}`);
       w.postMessage(`go depth ${depth}`);
     });
@@ -148,4 +178,15 @@ export class Engine {
     this.worker?.terminate();
     this.worker = null;
   }
+}
+
+/** Split positions into contiguous runs so each worker reuses its hash on consecutive moves. */
+export function splitRanges(count: number, parts: number): [number, number][] {
+  const k = Math.max(1, Math.min(parts, count));
+  const out: [number, number][] = [];
+  for (let i = 0; i < k; i++) {
+    const start = Math.floor((i * count) / k), end = Math.floor(((i + 1) * count) / k);
+    if (end > start) out.push([start, end]);
+  }
+  return out;
 }
