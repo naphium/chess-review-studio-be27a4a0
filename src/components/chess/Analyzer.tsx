@@ -15,6 +15,7 @@ import { EvalGraph } from "./EvalGraph";
 import { Button } from "@/components/ui/button";
 import { Undo2, RotateCcw, Play } from "lucide-react";
 import { playVariation, variationFen, type Variation } from "@/lib/variation";
+import { useSiteSettings, useDiscordPresence } from "@/lib/site-settings";
 import coachImg from "@/assets/coach.png";
 
 type SideTab = "report" | "analysis" | "insights" | "settings";
