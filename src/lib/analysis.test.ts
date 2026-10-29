@@ -20,17 +20,15 @@ describe("book and brilliant", () => {
     expect(bookFlags(["e4", "e5", "Nf3", "Nc6", "Bb5", "h5"])).toEqual([true, true, true, true, true, false]);
   });
   it("marks a sound piece sacrifice that stays best as brilliant", () => {
-    // White plays Bxh7+? no — simpler: leave a knight hanging on f7-square style; use Ng5 offering knight
-    const c = new Chess("r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 0 1");
-    const move = c.move("Qxf7#");
-    const ev = { score: { cp: 10000 }, lines: [{ uci: "h5f7", san: "Qxf7#", score: { cp: 10000 }, pv: [] }] };
-    expect(classifyMove(move, ev, ev).cls).not.toBe("brilliant"); // capture, not a sacrifice
-    const c2 = new Chess("rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 1");
-    const hang = c2.move("Ng5"); // knight not hanging -> not a sac
-    const ev2 = { score: { cp: 30 }, lines: [{ uci: "f3g5", san: "Ng5", score: { cp: 30 }, pv: [] }] };
-    expect(classifyMove(hang, ev2, ev2).cls).toBe("best");
-    const c3 = new Chess("rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 1");
-    const sac = c3.move("Nxe5"); // takes pawn, knight not attacked... use Qh5-free: verify via helper
-    expect(sac).toBeTruthy();
+    const fen = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 1";
+    const sac = new Chess(fen).move("Ng5"); // knight left hanging to Qxg5
+    const ev = { score: { cp: 30 }, lines: [{ uci: "f3g5", san: "Ng5", score: { cp: 30 }, pv: [] }] };
+    expect(classifyMove(sac, ev, ev).cls).toBe("brilliant");
+  });
+  it("does not call a defended pawn push a sacrifice", () => {
+    const fen = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 1";
+    const push = new Chess(fen).move("d4"); // exd4 is met by Qxd4/Nxd4
+    const ev = { score: { cp: 30 }, lines: [{ uci: "d2d4", san: "d4", score: { cp: 30 }, pv: [] }] };
+    expect(classifyMove(push, ev, ev).cls).toBe("best");
   });
 });
