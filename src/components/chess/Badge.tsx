@@ -3,6 +3,7 @@ import { CLASS_META, type Classification } from "@/lib/analysis";
 const BG: Record<Classification, string> = {
   brilliant: "bg-cls-brilliant",
   great: "bg-cls-great",
+  book: "bg-cls-book",
   best: "bg-cls-best",
   excellent: "bg-cls-excellent",
   good: "bg-cls-good",

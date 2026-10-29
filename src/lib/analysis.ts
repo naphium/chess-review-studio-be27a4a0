@@ -7,6 +7,7 @@ export type Classification =
   | "best"
   | "excellent"
   | "good"
+  | "book"
   | "inaccuracy"
   | "mistake"
   | "miss"
@@ -14,6 +15,7 @@ export type Classification =
 
 export const CLASS_META: Record<Classification, { label: string; symbol: string }> = {
   brilliant: { label: "Brilliant", symbol: "!!" },
+  book: { label: "Book", symbol: "📖" },
   great: { label: "Great", symbol: "!" },
   best: { label: "Best", symbol: "★" },
   excellent: { label: "Excellent", symbol: "👍" },
@@ -54,11 +56,33 @@ function evalNum(e: PositionEval, fen: string): number {
   return scoreToNum(e.score);
 }
 
-export function classifyMove(move: Move, before: PositionEval, after: PositionEval): {
+/**
+ * Material the mover leaves en prise after the move: the most the opponent can win
+ * with a single capture (simple exchange: captured value minus recapture risk).
+ */
+export function sacrificedMaterial(move: Move): number {
+  const c = new Chess(move.after);
+  const me = move.color;
+  let best = 0;
+  for (const r of c.moves({ verbose: true })) {
+    if (!r.captured) continue;
+    const gained = VAL[r.captured];
+    c.move(r);
+    const defended = c.isAttacked(r.to, me);
+    c.undo();
+    const net = defended ? gained - VAL[r.piece] : gained;
+    if (net > best) best = net;
+  }
+  // Material we just won with this move offsets what we leave hanging.
+  return best - (move.captured ? VAL[move.captured] : 0);
+}
+
+export function classifyMove(move: Move, before: PositionEval, after: PositionEval, book = false): {
   cls: Classification;
   loss: number;
   accuracy: number;
 } {
+  if (book) return { cls: "book", loss: 0, accuracy: 100 };
   const sign = move.color === "w" ? 1 : -1;
   const b = cap(evalNum(before, move.before) * sign);
   const a = cap(evalNum(after, move.after) * sign);
@@ -72,14 +96,11 @@ export function classifyMove(move: Move, before: PositionEval, after: PositionEv
   let cls: Classification;
   if (isBest || wl < 1) {
     cls = "best";
-    const after = new Chess(move.after);
-    const captured = move.captured ? VAL[move.captured] : 0;
-    const sacrifice =
-      VAL[move.piece] > captured + 1 &&
-      after.isAttacked(move.to, move.color === "w" ? "b" : "w") &&
-      move.piece !== "p";
     const second = before.lines[1] ? cap(scoreToNum(before.lines[1].score) * sign) : null;
-    if (sacrifice && loss <= 20 && a > -100) cls = "brilliant";
+    // Brilliant (Chess.com style): a sound sacrifice — real material is left en prise,
+    // the move is still (near) best, the position stays good, and we weren't already totally winning.
+    const sacrifice = !move.promotion && sacrificedMaterial(move) >= 2;
+    if (sacrifice && a >= -50 && b < 700) cls = "brilliant";
     else if (isBest && second !== null && b - second >= 150 && a > -200) cls = "great";
   } else if (wl < 3) cls = "excellent";
   else if (wl < 6) cls = "good";

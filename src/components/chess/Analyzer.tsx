@@ -3,6 +3,7 @@ import { ClientOnly } from "@tanstack/react-router";
 import { Chess } from "chess.js";
 import { Engine, type PositionEval } from "@/lib/engine";
 import { classifyMove, CLASS_META, formatScore, parsePgn, type Classification, type ParsedGame } from "@/lib/analysis";
+import { bookFlags } from "@/lib/book";
 import { playMoveSound } from "@/lib/sounds";
 import { EvalBar } from "./EvalBar";
 import { ClassBadge } from "./Badge";
@@ -95,7 +96,8 @@ export function Analyzer() {
 
   const infos: (MoveInfo | undefined)[] = useMemo(() => {
     if (!game) return [];
-    return game.moves.map((m, i) => (evals[i] && evals[i + 1] ? classifyMove(m, evals[i]!, evals[i + 1]!) : undefined));
+    const book = bookFlags(game.moves.map((m) => m.san));
+    return game.moves.map((m, i) => (evals[i] && evals[i + 1] ? classifyMove(m, evals[i]!, evals[i + 1]!, book[i]) : undefined));
   }, [game, evals]);
 
   const summary = useMemo(() => {
@@ -106,9 +108,10 @@ export function Analyzer() {
     game?.moves.forEach((m, i) => {
       const inf = infos[i];
       if (!inf) return;
+      s[m.color].counts[inf.cls] = (s[m.color].counts[inf.cls] ?? 0) + 1;
+      if (inf.cls === "book") return; // book moves don't count toward accuracy
       s[m.color].acc.push(inf.accuracy);
       s[m.color].loss.push(Math.min(inf.loss, 1000));
-      s[m.color].counts[inf.cls] = (s[m.color].counts[inf.cls] ?? 0) + 1;
     });
     const avg = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
     const fin = (x: typeof s.w) => {
