@@ -180,7 +180,8 @@ export function Analyzer() {
   const exploring = tab === "analysis" && !!variation?.moves.length;
   const fen = exploring ? variationFen(originalFen, variation) : originalFen;
   const last = exploring ? variation?.moves.at(-1) : game && ply > 0 ? game.moves[ply - 1] : undefined;
-  const cur = exploring ? variationEval : evals[ply];
+  const needLive = tab === "analysis" && !!game && (exploring || !evals[ply]);
+  const cur = exploring ? variationEval : evals[ply] ?? variationEval;
   const makeMove = useCallback((from: string, to: string, promotion?: string) => {
     if (!game || tab !== "analysis") return false;
     const move = playVariation(fen, from, to, promotion);
@@ -192,7 +193,7 @@ export function Analyzer() {
   }, [game, tab, fen, ply, sound]);
 
   useEffect(() => {
-    if (!exploring) return;
+    if (!needLive) return;
     let stale = false;
     setVariationEval(undefined);
     setVariationError(null);
@@ -203,7 +204,7 @@ export function Analyzer() {
       if (!stale) setVariationError((error as Error).message);
     });
     return () => { stale = true; eng.cancel(); };
-  }, [exploring, fen]);
+  }, [needLive, fen]);
   const hint = showHint && cur?.lines[0] ? { from: cur.lines[0].uci.slice(0, 2), to: cur.lines[0].uci.slice(2, 4) } : undefined;
   const h = game?.headers ?? {};
   const analyzed = !!game && done >= total;
