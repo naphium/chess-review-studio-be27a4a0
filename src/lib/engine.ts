@@ -1,12 +1,11 @@
 import { Chess } from "chess.js";
+import engineAsset from "@/assets/stockfish-19.wasm.asset.json";
 
 export type Score = { cp: number; mate?: number }; // white perspective
 export type Line = { uci: string; san: string; score: Score; pv: string[] };
-export type EvalSource = "cloud" | "stockfish" | "basic" | "terminal";
-export type PositionEval = { score: Score; lines: Line[]; source?: EvalSource };
-
-const SF_URL = "https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js";
-const VALUES: Record<string, number> = { p: 100, n: 300, b: 320, r: 500, q: 900, k: 0 };
+export type EvalSource = "stockfish" | "terminal";
+export type PositionEval = { score: Score; lines: Line[]; source?: EvalSource; depth?: number };
+export const SEARCH_DEPTH = 18;
 
 export function scoreToNum(s: Score): number {
   if (s.mate !== undefined) return s.mate === 0 ? 0 : Math.sign(s.mate) * (10000 - Math.abs(s.mate) * 10);
@@ -17,164 +16,136 @@ function uciToSan(fen: string, pv: string[]): string[] {
   const c = new Chess(fen);
   const out: string[] = [];
   for (const u of pv.slice(0, 8)) {
-    try {
-      const m = c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] });
-      out.push(m.san);
-    } catch {
-      break;
-    }
+    try { out.push(c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] }).san); }
+    catch { break; }
   }
   return out;
 }
 
-function materialEval(c: Chess): number {
-  let s = 0;
-  for (const row of c.board()) for (const p of row) if (p) s += (p.color === "w" ? 1 : -1) * VALUES[p.type];
-  return s;
-}
-
-function mockEval(fen: string): PositionEval {
-  const c = new Chess(fen);
-  const side = c.turn() === "w" ? 1 : -1;
-  const moves = c.moves({ verbose: true }).map((m) => {
-    c.move(m);
-    let v = c.isCheckmate() ? 99999 * side : materialEval(c) + (c.inCheck() ? 15 * side : 0);
-    // shallow reply: opponent's best capture
-    if (!c.isGameOver()) {
-      let worst = v;
-      for (const r of c.moves({ verbose: true })) {
-        c.move(r);
-        const rv = c.isCheckmate() ? -99999 * side : materialEval(c);
-        c.undo();
-        if (side * rv < side * worst) worst = rv;
-      }
-      v = worst;
-    }
-    c.undo();
-    return { m, v };
-  });
-  moves.sort((a, b) => side * (b.v - a.v));
-  const lines: Line[] = moves.slice(0, 2).map(({ m, v }) => ({
-    uci: m.from + m.to + (m.promotion ?? ""),
-    san: m.san,
-    score: { cp: Math.max(-1500, Math.min(1500, v)) },
-    pv: [m.san],
-  }));
-  return { score: lines[0]?.score ?? { cp: materialEval(c) }, lines };
-}
+// Only completed, full-depth searches are reused across review and exploration.
+const cache = new Map<string, PositionEval>();
 
 export class Engine {
   private worker: Worker | null = null;
   private ready: Promise<boolean>;
+  private queue: Promise<unknown> = Promise.resolve();
+  private epoch = 0;
+  private activeReject: ((error: Error) => void) | null = null;
   public usingStockfish = false;
 
   constructor() {
     this.ready = new Promise((resolve) => {
       try {
-        const blob = new Blob([`importScripts("${SF_URL}");`], { type: "application/javascript" });
-        this.worker = new Worker(URL.createObjectURL(blob));
-        const t = setTimeout(() => resolve(false), 8000);
-        this.worker.onmessage = (e) => {
-          if (String(e.data).includes("uciok")) {
-            clearTimeout(t);
-            this.worker!.postMessage("setoption name MultiPV value 2");
+        const wasmUrl = new URL(engineAsset.url, window.location.origin).href;
+        const w = new Worker(`/engine/stockfish-19/stockfish-19-single.js#${encodeURIComponent(wasmUrl)}`);
+        this.worker = w;
+        const timer = setTimeout(() => { w.terminate(); this.worker = null; resolve(false); }, 120000);
+        w.onmessage = (e) => {
+          const msg = String(e.data);
+          if (msg === "uciok") {
+            w.postMessage("setoption name MultiPV value 2");
+            w.postMessage("setoption name Hash value 32");
+            w.postMessage("isready");
+          } else if (msg === "readyok") {
+            clearTimeout(timer);
             this.usingStockfish = true;
             resolve(true);
           }
         };
-        this.worker.onerror = () => resolve(false);
-        this.worker.postMessage("uci");
-      } catch {
-        resolve(false);
-      }
+        w.onerror = () => { clearTimeout(timer); w.terminate(); this.worker = null; resolve(false); };
+        w.postMessage("uci");
+      } catch { resolve(false); }
     });
   }
 
-  async isReady() {
-    return this.ready;
+  async isReady() { return this.ready; }
+
+  /** Drop queued exploration requests; an active search drains before the next begins. */
+  cancel() {
+    this.epoch++;
+    this.worker?.postMessage("stop");
   }
 
-  /** Per-game: cloud stays enabled only while every position so far came from the cloud. */
-  private cloudEnabled = true;
-  private queue: Promise<unknown> = Promise.resolve();
-  resetCloud() {
-    this.cloudEnabled = true;
-  }
-  /** Force local engine for the rest of this game (avoids mixing evaluation depths). */
-  disableCloud() {
-    this.cloudEnabled = false;
-  }
-
-  /** Deep (often depth 30+) evaluations from Lichess' shared cloud database. */
-  private async cloud(fen: string): Promise<PositionEval | null> {
-    if (!this.cloudEnabled) return null;
-    try {
-      const r = await fetch(`https://lichess.org/api/cloud-eval?fen=${encodeURIComponent(fen)}&multiPv=2`);
-      if (!r.ok) {
-        this.cloudEnabled = false;
-        return null;
-      }
-      const d = (await r.json()) as { pvs: { moves: string; cp?: number; mate?: number }[] };
-      const lines: Line[] = d.pvs.map((pv) => {
-        const uciMoves = pv.moves.split(" ");
-        const sans = uciToSan(fen, uciMoves);
-        const score: Score = pv.mate !== undefined ? { cp: 0, mate: pv.mate } : { cp: pv.cp ?? 0 };
-        return { uci: uciMoves[0], san: sans[0] ?? uciMoves[0], score, pv: sans };
-      });
-      return lines.length ? { score: lines[0].score, lines } : null;
-    } catch {
-      this.cloudEnabled = false;
-      return null;
-    }
-  }
-
-  /** Searches are serialized: only one runs on the worker at a time. */
-  analyze(fen: string, depth = 15): Promise<PositionEval> {
-    const job = this.queue.then(() => this.run(fen, depth));
+  analyze(fen: string, depth = SEARCH_DEPTH): Promise<PositionEval> {
+    const epoch = this.epoch;
+    const job = this.queue.then(() => {
+      if (epoch !== this.epoch) throw new Error("Search cancelled");
+      return this.run(fen, depth, epoch);
+    });
     this.queue = job.catch(() => undefined);
     return job;
   }
 
-  private async run(fen: string, depth: number): Promise<PositionEval> {
+  private async run(fen: string, depth: number, epoch: number): Promise<PositionEval> {
     const c = new Chess(fen);
     if (c.isCheckmate()) return { score: { cp: c.turn() === "w" ? -10000 : 10000 }, lines: [], source: "terminal" };
     if (c.isGameOver()) return { score: { cp: 0 }, lines: [], source: "terminal" };
-    const cloud = await this.cloud(fen);
-    if (cloud) return { ...cloud, source: "cloud" };
+    const key = `${depth}:${fen}`;
+    const cached = cache.get(key);
+    if (cached) return cached;
     const ok = await this.ready;
-    if (!ok || !this.worker) return { ...mockEval(fen), source: "basic" };
+    if (epoch !== this.epoch) throw new Error("Search cancelled");
+    if (!ok || !this.worker) throw new Error("Stockfish could not load. Check your connection and reload; no weaker analysis has been substituted.");
     const side = c.turn() === "w" ? 1 : -1;
     const w = this.worker;
-    return new Promise((resolve) => {
-      const lines: Record<number, { score: Score; pv: string[] }> = {};
+    return new Promise((resolve, reject) => {
+      const lines: Record<number, { score: Score; pv: string[]; depth: number }> = {};
+      let settled = false;
+      const fail = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.activeReject = null;
+        reject(error);
+      };
+      this.activeReject = fail;
+      const timer = setTimeout(() => {
+        w.terminate(); this.worker = null; this.usingStockfish = false;
+        fail(new Error("The engine search timed out. Reload to retry; incomplete results were not used."));
+      }, 180000);
+      w.onerror = () => { w.terminate(); this.worker = null; fail(new Error("The chess engine stopped. Reload to retry.")); };
       w.onmessage = (e) => {
         const msg = String(e.data);
-        if (msg.startsWith("info") && msg.includes(" pv ")) {
+        if (msg.startsWith("info") && msg.includes(" pv ") && !msg.includes("bound")) {
           const mpv = Number(/multipv (\d+)/.exec(msg)?.[1] ?? 1);
           const cp = /score cp (-?\d+)/.exec(msg);
           const mate = /score mate (-?\d+)/.exec(msg);
-          const pv = msg.split(" pv ")[1].trim().split(" ");
-          const score: Score = mate
-            ? { cp: 0, mate: Number(mate[1]) * side }
-            : { cp: Number(cp?.[1] ?? 0) * side };
-          lines[mpv] = { score, pv };
+          if (!cp && !mate) return;
+          const score: Score = mate ? { cp: 0, mate: Number(mate[1]) * side } : { cp: Number(cp?.[1] ?? 0) * side };
+          lines[mpv] = { score, pv: msg.split(" pv ")[1].trim().split(" "), depth: Number(/\bdepth (\d+)/.exec(msg)?.[1] ?? 0) };
         } else if (msg.startsWith("bestmove")) {
-          const out: Line[] = [1, 2]
-            .filter((k) => lines[k])
-            .map((k) => {
-              const sans = uciToSan(fen, lines[k].pv);
-              return { uci: lines[k].pv[0], san: sans[0] ?? lines[k].pv[0], score: lines[k].score, pv: sans };
-            });
+          if (epoch !== this.epoch) { fail(new Error("Search cancelled")); return; }
+          const out: Line[] = [1, 2].flatMap((k) => {
+            const line = lines[k];
+            if (!line) return [];
+            const sans = uciToSan(fen, line.pv);
+            return [{ uci: line.pv[0], san: sans[0] ?? line.pv[0], score: line.score, pv: sans }];
+          });
+          const top = lines[1];
+          if (!top || !out.length) { fail(new Error("The engine returned no complete evaluation.")); return; }
+          const result: PositionEval = { score: out[0].score, lines: out, source: "stockfish", depth: top.depth };
+          if (top.depth >= depth) {
+            if (cache.size >= 2000) { const first = cache.keys().next().value; if (first) cache.delete(first); }
+            cache.set(key, result);
+          }
+          settled = true;
+          clearTimeout(timer);
+          this.activeReject = null;
           w.onmessage = null;
-          resolve({ score: out[0]?.score ?? { cp: 0 }, lines: out, source: "stockfish" });
+          resolve(result);
         }
       };
+      // Identical policy for every original position; no cloud/local depth mixing.
+      w.postMessage("setoption name Clear Hash");
       w.postMessage(`position fen ${fen}`);
       w.postMessage(`go depth ${depth}`);
     });
   }
 
   terminate() {
+    this.epoch++;
+    this.activeReject?.(new Error("Search cancelled"));
     this.worker?.terminate();
+    this.worker = null;
   }
 }
