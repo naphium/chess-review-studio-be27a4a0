@@ -61,7 +61,7 @@ export function Analyzer({ defaultSound = true, defaultBlackView = false }: { de
       // Extra review workers start after the first is loaded (engine file is then cached).
       const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 4;
       const cap = mem >= 8 ? 5 : 3;
-      const extra = Math.max(0, Math.min(cap, (navigator.hardwareConcurrency || 2) - 2));
+      const extra = Math.max(0, Math.min(cap, (navigator.hardwareConcurrency || 2) - 1));
       if (ok) poolRef.current = Array.from({ length: extra }, () => new Engine());
     });
     return () => { e.terminate(); poolRef.current.forEach((p) => p.terminate()); variationEngineRef.current?.terminate(); };
@@ -92,23 +92,26 @@ export function Analyzer({ defaultSound = true, defaultBlackView = false }: { de
     const id = ++runId.current;
     const eng = engineRef.current;
     if (!eng) { setError("The chess engine is not ready. Please retry."); return; }
-    eng.cancel();
-    poolRef.current.forEach((p) => p.cancel());
-    try {
-    // Parallel full-depth workers; each search clears its hash, so results are identical to a single worker.
     const workers = [eng, ...poolRef.current];
+    workers.forEach((w) => { w.cancel(); w.newGame(); });
+    try {
+    // Parallel full-depth workers. Each takes runs of consecutive positions so its hash
+    // carries over from move to move (faster, same depth); runs are shared out as workers free up.
+    const runs = splitRanges(g.fens.length, workers.length * 3);
     let next = 0;
     await Promise.all(workers.map(async (w) => {
       while (runId.current === id) {
-        const i = next++;
-        if (i >= g.fens.length) return;
-        const r = await w.analyze(g.fens[i]);
-        if (runId.current !== id) return;
-        setEvals((prev) => {
-          const n = [...prev];
-          n[i] = r;
-          return n;
-        });
+        const run = runs[next++];
+        if (!run) return;
+        for (let i = run[0]; i < run[1]; i++) {
+          const r = await w.analyze(g.fens[i]);
+          if (runId.current !== id) return;
+          setEvals((prev) => {
+            const n = [...prev];
+            n[i] = r;
+            return n;
+          });
+        }
       }
     }));
     } catch (e) {
