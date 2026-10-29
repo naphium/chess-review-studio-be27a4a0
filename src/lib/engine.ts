@@ -44,7 +44,7 @@ export class Engine {
           const msg = String(e.data);
           if (msg === "uciok") {
             w.postMessage("setoption name MultiPV value 2");
-            w.postMessage("setoption name Hash value 32");
+            w.postMessage("setoption name Hash value 64");
             w.postMessage("isready");
           } else if (msg === "readyok") {
             clearTimeout(timer);
