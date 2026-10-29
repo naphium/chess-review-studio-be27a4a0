@@ -79,6 +79,7 @@ export function Analyzer() {
     const id = ++runId.current;
     const eng = engineRef.current;
     if (!eng) { setError("The chess engine is not ready. Please retry."); return; }
+    eng.cancel();
     try {
     for (let i = 0; i < g.fens.length; i++) {
       const r = await eng.analyze(g.fens[i]);
@@ -217,7 +218,7 @@ export function Analyzer() {
   const clockFor = (color: "w" | "b") => {
     if (!clocks || (!clocks.any && !clocks.base)) return "--:--";
     let t: number | null = clocks.base;
-    for (let i = 0; i < ply; i++) if (game!.moves[i].color === color && clocks.perPly[i] !== null) t = clocks.perPly[i];
+    for (let i = 0; i < ply; i++) if (game?.moves[i].color === color && clocks.perPly[i] !== null) t = clocks.perPly[i];
     if (t === null) return "--:--";
     const hh = Math.floor(t / 3600);
     const mm = Math.floor((t % 3600) / 60);
@@ -239,7 +240,8 @@ export function Analyzer() {
         endgame = mat <= 26;
       }
       const ph = endgame ? "Endgame" : i < 20 ? "Opening" : "Middlegame";
-      if (infos[i]) res[ph][m.color].push(infos[i]!.accuracy);
+      const info = infos[i];
+      if (info) res[ph][m.color].push(info.accuracy);
     });
     return res;
   }, [game, infos]);
@@ -254,7 +256,8 @@ export function Analyzer() {
     if (!game) return { text: "Hi! Import a game and I'll walk you through the key moments.", ply: null as number | null };
     if (ply > 0 && infos[ply - 1]) {
       const m = game.moves[ply - 1];
-      const inf = infos[ply - 1]!;
+      const inf = infos[ply - 1];
+      if (!inf) return { text: "Calculating…", ply: null };
       const best = evals[ply - 1]?.lines[0];
       const lbl = CLASS_META[inf.cls].label;
       const alt = best && best.san !== m.san && !["best", "brilliant", "great"].includes(inf.cls) ? ` The engine preferred ${best.san}.` : "";
@@ -275,7 +278,7 @@ export function Analyzer() {
   const share = async () => {
     const p = coach.ply ?? ply;
     const m = game && p > 0 ? game.moves[p - 1] : null;
-    const text = m ? `${Math.floor((p - 1) / 2) + 1}${m.color === "w" ? "." : "..."} ${m.san} — ${coach.text}\nFEN: ${game!.fens[p]}\nReviewed on NafChessLog` : fen;
+    const text = m ? `${Math.floor((p - 1) / 2) + 1}${m.color === "w" ? "." : "..."} ${m.san} — ${coach.text}\nFEN: ${game?.fens[p]}\nReviewed on NafChessLog` : fen;
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -319,7 +322,7 @@ export function Analyzer() {
               </ClientOnly>
               {!exploring && last && infos[ply - 1] && (
                 <div className="pointer-events-none absolute right-1.5 top-1.5 rounded-full bg-popover/90 px-2.5 py-1 shadow-lg animate-in fade-in zoom-in-90">
-                  <ClassBadge cls={infos[ply - 1]!.cls} withLabel />
+                  <ClassBadge cls={infos[ply - 1]?.cls ?? "best"} withLabel />
                 </div>
               )}
             </div>
@@ -336,7 +339,7 @@ export function Analyzer() {
               {game?.moves.map((m, i) => (
                 <button key={i} data-active={ply === i + 1} onClick={() => goTo(i + 1)} className="move-chip">
                   {m.color === "w" && <span className="text-xs opacity-60">{i / 2 + 1}.</span>}
-                  {infos[i] && <ClassBadge cls={infos[i]!.cls} />}
+                  {infos[i] && <ClassBadge cls={infos[i]?.cls ?? "best"} />}
                   {m.san}
                 </button>
               ))}
@@ -381,7 +384,7 @@ export function Analyzer() {
                   {game && (
                     <div className="mt-2 flex gap-2">
                       {coach.ply !== null && coach.ply !== ply && (
-                        <button className="btn-ghost h-8 text-xs" onClick={() => goTo(coach.ply!)}>
+                        <button className="btn-ghost h-8 text-xs" onClick={() => { if (coach.ply !== null) goTo(coach.ply); }}>
                           Show me
                         </button>
                       )}
@@ -525,7 +528,7 @@ export function Analyzer() {
                                 <td key={j} className="w-1/2">
                                   <button data-active={ply === j + 1} onClick={() => goTo(j + 1)} className="move-cell">
                                     <span>{game.moves[j].san}</span>
-                                    {infos[j] && <ClassBadge cls={infos[j]!.cls} />}
+                                    {infos[j] && <ClassBadge cls={infos[j]?.cls ?? "best"} />}
                                   </button>
                                 </td>
                               ) : (
@@ -567,7 +570,7 @@ export function Analyzer() {
                       </span>
                       <span className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground">
                         {CLASS_META[x.cls].label}
-                        {evals[i]?.lines[0] && !["brilliant", "great"].includes(x.cls) ? ` · best ${evals[i]!.lines[0].san}` : ""}
+                        {evals[i]?.lines[0] && !["brilliant", "great"].includes(x.cls) ? ` · best ${evals[i]?.lines[0]?.san}` : ""}
                       </span>
                     </button>
                   ) : null,
