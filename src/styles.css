@@ -183,3 +183,6 @@
   @apply relative rounded-xl bg-eval-white px-3 py-2 text-sm text-eval-black;
   &::before { content: ""; @apply absolute -left-1.5 top-4 h-3 w-3 rotate-45 bg-eval-white; }
 }
+@utility inp {
+  @apply h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground;
+}
