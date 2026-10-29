@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { Analyzer } from "@/components/chess/Analyzer";
 import { OwnerCard } from "@/components/OwnerCard";
 import { useSiteSettings } from "@/lib/site-settings";

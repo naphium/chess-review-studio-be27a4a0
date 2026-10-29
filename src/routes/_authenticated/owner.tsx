@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { siteSettingsQuery, type SiteSettings } from "@/lib/site-settings";
 import { OwnerCard } from "@/components/OwnerCard";
 
-export const Route = createFileRoute("/_authenticated/portal")({
+export const Route = createFileRoute("/_authenticated/owner")({
   head: () => ({
     meta: [
       { title: "Owner portal — NafChessLog" },
