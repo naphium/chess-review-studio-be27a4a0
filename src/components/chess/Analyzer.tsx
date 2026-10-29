@@ -392,7 +392,7 @@ export function Analyzer() {
             <div className="flex flex-col gap-4 animate-in fade-in duration-300">
               {/* Coach */}
               <div className="flex gap-3">
-                <img src={coachImg} alt="Coach" width={64} height={64} className="h-14 w-14 shrink-0 rounded-full border border-border object-cover sm:h-16 sm:w-16" />
+                <img src={coachImg} alt="Coach" loading="lazy" width={64} height={64} className="h-14 w-14 shrink-0 rounded-full border border-border object-cover sm:h-16 sm:w-16" />
                 <div className="min-w-0 flex-1">
                   <div className="bubble">{coach.text}</div>
                   {game && (
