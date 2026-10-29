@@ -66,6 +66,28 @@ export class Engine {
     this.worker?.postMessage("stop");
   }
 
+  /** Clear the engine's hash before a new game; runs after any active search drains. */
+  newGame() {
+    this.queue = this.queue.then(async () => {
+      if (await this.ready) this.worker?.postMessage("ucinewgame");
+    }).catch(() => undefined);
+  }
+}
+
+/** Split positions into contiguous runs so each worker reuses its hash on consecutive moves. */
+export function splitRanges(count: number, parts: number): [number, number][] {
+  const k = Math.max(1, Math.min(parts, count));
+  const out: [number, number][] = [];
+  for (let i = 0; i < k; i++) {
+    const start = Math.floor((i * count) / k), end = Math.floor(((i + 1) * count) / k);
+    if (end > start) out.push([start, end]);
+  }
+  return out;
+}
+
+class _EngineRest extends Engine {}
+void _EngineRest;
+
   analyze(fen: string, depth = SEARCH_DEPTH): Promise<PositionEval> {
     const epoch = this.epoch;
     const job = this.queue.then(() => {
@@ -135,8 +157,9 @@ export class Engine {
           resolve(result);
         }
       };
-      // Identical policy for every original position; no cloud/local depth mixing.
-      w.postMessage("setoption name Clear Hash");
+      // Same fixed depth for every position. The hash table is kept between consecutive
+      // positions of one game (cleared per game via newGame), which speeds searches
+      // without lowering depth or search quality.
       w.postMessage(`position fen ${fen}`);
       w.postMessage(`go depth ${depth}`);
     });
