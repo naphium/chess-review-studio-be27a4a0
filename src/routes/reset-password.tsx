@@ -25,7 +25,7 @@ function Reset() {
     e.preventDefault();
     const { error } = await supabase.auth.updateUser({ password: pw });
     if (error) setMsg(error.message);
-    else navigate({ to: "/portal" });
+    else navigate({ to: "/owner" });
   }
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
