@@ -53,7 +53,7 @@ function Portal() {
     setSaving(true);
     const { error } = await supabase.from("site_settings").update({ ...f, updated_at: new Date().toISOString() }).eq("id", 1);
     setSaving(false);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     toast.success("Saved — changes are live.");
     qc.invalidateQueries({ queryKey: ["site-settings"] });
   }
