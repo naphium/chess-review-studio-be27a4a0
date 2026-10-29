@@ -15,8 +15,7 @@ import { EvalGraph } from "./EvalGraph";
 import { Button } from "@/components/ui/button";
 import { Undo2, RotateCcw, Play } from "lucide-react";
 import { playVariation, variationFen, type Variation } from "@/lib/variation";
-import coachAsset from "@/assets/coach.png.asset.json";
-const coachImg = coachAsset.url;
+import coachImg from "@/assets/coach.png";
 
 type SideTab = "report" | "analysis" | "insights" | "settings";
 
@@ -393,7 +392,7 @@ export function Analyzer() {
             <div className="flex flex-col gap-4 animate-in fade-in duration-300">
               {/* Coach */}
               <div className="flex gap-3">
-                <img src={coachImg} alt="Coach" width={64} height={64} className="h-14 w-14 shrink-0 rounded-full border border-border object-cover sm:h-16 sm:w-16" />
+                <img src={coachImg} alt="Coach" loading="lazy" width={64} height={64} className="h-14 w-14 shrink-0 rounded-full border border-border object-cover sm:h-16 sm:w-16" />
                 <div className="min-w-0 flex-1">
                   <div className="bubble">{coach.text}</div>
                   {game && (
