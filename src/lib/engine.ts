@@ -72,21 +72,6 @@ export class Engine {
       if (await this.ready) this.worker?.postMessage("ucinewgame");
     }).catch(() => undefined);
   }
-}
-
-/** Split positions into contiguous runs so each worker reuses its hash on consecutive moves. */
-export function splitRanges(count: number, parts: number): [number, number][] {
-  const k = Math.max(1, Math.min(parts, count));
-  const out: [number, number][] = [];
-  for (let i = 0; i < k; i++) {
-    const start = Math.floor((i * count) / k), end = Math.floor(((i + 1) * count) / k);
-    if (end > start) out.push([start, end]);
-  }
-  return out;
-}
-
-class _EngineRest extends Engine {}
-void _EngineRest;
 
   analyze(fen: string, depth = SEARCH_DEPTH): Promise<PositionEval> {
     const epoch = this.epoch;
