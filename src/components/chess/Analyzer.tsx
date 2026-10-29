@@ -59,7 +59,9 @@ export function Analyzer({ defaultSound = true, defaultBlackView = false }: { de
     e.isReady().then((ok) => {
       setEngineName(ok ? "Stockfish 19 NNUE · depth 18" : "Engine unavailable");
       // Extra review workers start after the first is loaded (engine file is then cached).
-      const extra = Math.max(0, Math.min(3, (navigator.hardwareConcurrency || 2) - 2));
+      const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 4;
+      const cap = mem >= 8 ? 5 : 3;
+      const extra = Math.max(0, Math.min(cap, (navigator.hardwareConcurrency || 2) - 2));
       if (ok) poolRef.current = Array.from({ length: extra }, () => new Engine());
     });
     return () => { e.terminate(); poolRef.current.forEach((p) => p.terminate()); variationEngineRef.current?.terminate(); };
