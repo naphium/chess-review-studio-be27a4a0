@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { estimateElo, accuracyToElo } from "./elo";
+import { estimateElo, accuracyToElo, gameAccuracy } from "./elo";
 
 describe("estimateElo", () => {
   it("rates a near-perfect long game above 2400", () => {
@@ -13,7 +13,14 @@ describe("estimateElo", () => {
     expect(e.elo).toBeLessThan(1900);
     expect(e.confidence).toBe("low");
   });
-  it("maps 75% accuracy to 1900", () => {
-    expect(accuracyToElo(75)).toBe(1900);
+  it("maps 75% accuracy to 1300", () => {
+    expect(accuracyToElo(75)).toBe(1300);
+  });
+  it("rates a mediocre game (80% accuracy, 45 ACPL, 1 blunder) below 1700", () => {
+    expect(estimateElo({ accuracy: 80, acpl: 45, counts: { best: 12, good: 15, mistake: 2, blunder: 1 }, moves: 30 }).elo).toBeLessThan(1700);
+  });
+  it("drags game accuracy down for blunders", () => {
+    const acc = gameAccuracy([...Array(18).fill(100), 10, 10])!;
+    expect(acc).toBeLessThan(75);
   });
 });

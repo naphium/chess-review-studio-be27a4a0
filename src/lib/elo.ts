@@ -2,14 +2,15 @@ import type { Classification } from "./analysis";
 
 // Accuracy -> rating anchor points (piecewise linear).
 const ANCHORS: [number, number][] = [
-  [0, 400],
-  [50, 700],
-  [65, 1300],
-  [75, 1900],
-  [82, 2300],
-  [88, 2650],
-  [93, 2900],
-  [100, 3200],
+  [0, 300],
+  [50, 500],
+  [65, 900],
+  [75, 1300],
+  [82, 1650],
+  [88, 2050],
+  [93, 2450],
+  [97, 2800],
+  [100, 3100],
 ];
 
 export function accuracyToElo(acc: number): number {
@@ -42,8 +43,8 @@ export function estimateElo(input: {
   const inacc = counts.inaccuracy ?? 0;
 
   const accElo = accuracyToElo(accuracy);
-  const acplElo = Math.max(400, Math.min(3200, 3100 - 20 * Math.min(acpl, 130)));
-  const ratioAdj = (top / n - 0.5) * 300 - (blunders / n) * 900 - (mistakes / n) * 250 - (inacc / n) * 100;
+  const acplElo = Math.max(400, Math.min(3200, 2850 - 26 * Math.min(acpl, 100)));
+  const ratioAdj = (top / n - 0.5) * 200 - (blunders / n) * 1500 - (mistakes / n) * 600 - (inacc / n) * 200;
 
   const raw = 0.55 * accElo + 0.45 * acplElo + ratioAdj;
   const weight = Math.min(1, n / 25);
@@ -56,4 +57,15 @@ export function estimateElo(input: {
   else note = `Overall move quality of a ~${elo}`;
 
   return { elo, note, confidence: n < 12 ? "low" : n < 25 ? "medium" : "high" };
+}
+
+/**
+ * Game accuracy: average of the arithmetic and harmonic means of per-move accuracy,
+ * so a few bad moves pull the score down instead of being hidden by many easy ones.
+ */
+export function gameAccuracy(acc: number[]): number | null {
+  if (!acc.length) return null;
+  const mean = acc.reduce((x, y) => x + y, 0) / acc.length;
+  const harm = acc.length / acc.reduce((x, y) => x + 1 / Math.max(1, y), 0);
+  return (mean + harm) / 2;
 }

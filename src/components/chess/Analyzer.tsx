@@ -10,7 +10,7 @@ import { ClassBadge } from "./Badge";
 import { ImportPanel } from "./ImportPanel";
 import { fetchChessComAvatars, type GameSummary, type PlayerMeta } from "@/lib/importers";
 import { setLastPgn } from "@/lib/recent";
-import { estimateElo } from "@/lib/elo";
+import { estimateElo, gameAccuracy } from "@/lib/elo";
 import { EvalGraph } from "./EvalGraph";
 import { Button } from "@/components/ui/button";
 import { Undo2, RotateCcw, Play } from "lucide-react";
@@ -143,7 +143,7 @@ export function Analyzer({ defaultSound = true, defaultBlackView = false }: { de
     });
     const avg = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
     const fin = (x: typeof s.w) => {
-      const a = avg(x.acc);
+      const a = gameAccuracy(x.acc);
       const perf = a === null ? null : estimateElo({ accuracy: a, acpl: avg(x.loss) ?? 0, counts: x.counts, moves: x.acc.length });
       return { ...x, avg: a, acpl: avg(x.loss), perf };
     };
