@@ -12,6 +12,9 @@ import { fetchChessComAvatars, type GameSummary, type PlayerMeta } from "@/lib/i
 import { setLastPgn } from "@/lib/recent";
 import { estimateElo } from "@/lib/elo";
 import { EvalGraph } from "./EvalGraph";
+import { Button } from "@/components/ui/button";
+import { Undo2, RotateCcw, Play } from "lucide-react";
+import { playVariation, variationFen, type Variation } from "@/lib/variation";
 import coachAsset from "@/assets/coach.png.asset.json";
 const coachImg = coachAsset.url;
 
@@ -27,6 +30,10 @@ export function Analyzer() {
   const [error, setError] = useState<string | null>(null);
   const [game, setGame] = useState<ParsedGame | null>(null);
   const [ply, setPly] = useState(0);
+  const [variation, setVariation] = useState<Variation | null>(null);
+  const [variationEval, setVariationEval] = useState<PositionEval | undefined>();
+  const [variationError, setVariationError] = useState<string | null>(null);
+  const variationEngineRef = useRef<Engine | null>(null);
   const [orientation, setOrientation] = useState<"white" | "black">("white");
   const [evals, setEvals] = useState<(PositionEval | undefined)[]>([]);
   const [inputOpen, setInputOpen] = useState(true);
@@ -43,8 +50,8 @@ export function Analyzer() {
   useEffect(() => {
     const e = new Engine();
     engineRef.current = e;
-    e.isReady().then((ok) => setEngineName(ok ? "Stockfish 10 + Lichess cloud" : "Fallback evaluator"));
-    return () => e.terminate();
+    e.isReady().then((ok) => setEngineName(ok ? "Stockfish 19 NNUE · depth 18" : "Engine unavailable"));
+    return () => { e.terminate(); variationEngineRef.current?.terminate(); };
   }, []);
 
   const review = async (text: string, source?: GameSummary) => {
@@ -66,38 +73,35 @@ export function Analyzer() {
     else if (plat) setMeta({ platform: plat });
     if (source) setOrientation(source.userColor === "w" ? "white" : "black");
     setPly(0);
+    setVariation(null);
     setEvals([]);
     setInputOpen(false);
     const id = ++runId.current;
-    const eng = engineRef.current!;
-    eng.resetCloud();
-    let gameSource: string | undefined;
+    const eng = engineRef.current;
+    if (!eng) { setError("The chess engine is not ready. Please retry."); return; }
+    eng.cancel();
+    try {
     for (let i = 0; i < g.fens.length; i++) {
-      const r = await eng.analyze(g.fens[i], 15);
+      const r = await eng.analyze(g.fens[i]);
       if (runId.current !== id) return;
-      if (r.source !== "terminal") {
-        if (!gameSource) gameSource = r.source;
-        else if (r.source !== gameSource) {
-          // Cloud dropped out mid-game: redo the whole game locally so depths stay consistent.
-          eng.disableCloud();
-          gameSource = r.source;
-          setEvals([]);
-          i = -1;
-          continue;
-        }
-      }
       setEvals((prev) => {
         const n = [...prev];
         n[i] = r;
         return n;
       });
     }
+    } catch (e) {
+      if (runId.current === id) setError((e as Error).message);
+    }
   };
 
   const infos: (MoveInfo | undefined)[] = useMemo(() => {
     if (!game) return [];
     const book = bookFlags(game.moves.map((m) => m.san));
-    return game.moves.map((m, i) => (evals[i] && evals[i + 1] ? classifyMove(m, evals[i]!, evals[i + 1]!, book[i]) : undefined));
+    return game.moves.map((m, i) => {
+      const before = evals[i], after = evals[i + 1];
+      return before && after ? classifyMove(m, before, after, book[i]) : undefined;
+    });
   }, [game, evals]);
 
   const summary = useMemo(() => {
@@ -128,6 +132,7 @@ export function Analyzer() {
   const goTo = useCallback(
     (p: number) => {
       if (!game) return;
+      setVariation(null);
       const np = Math.max(0, Math.min(game.moves.length, p));
       if (np === ply) return;
       if (sound && np > 0 && np === ply + 1) {
@@ -157,9 +162,34 @@ export function Analyzer() {
     moveListRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: "nearest", inline: "center" });
   }, [ply]);
 
-  const fen = game ? game.fens[ply] : new Chess().fen();
-  const last = game && ply > 0 ? game.moves[ply - 1] : undefined;
-  const cur = evals[ply];
+  const originalFen = game ? game.fens[ply] : new Chess().fen();
+  const exploring = tab === "analysis" && !!variation?.moves.length;
+  const fen = exploring ? variationFen(originalFen, variation) : originalFen;
+  const last = exploring ? variation?.moves.at(-1) : game && ply > 0 ? game.moves[ply - 1] : undefined;
+  const cur = exploring ? variationEval : evals[ply];
+  const makeMove = useCallback((from: string, to: string, promotion?: string) => {
+    if (!game || tab !== "analysis") return false;
+    const move = playVariation(fen, from, to, promotion);
+    if (!move) return false;
+    setVariationEval(undefined);
+    setVariation((prev) => ({ originPly: prev?.originPly ?? ply, moves: [...(prev?.moves ?? []), move] }));
+    if (sound) playMoveSound(move.captured ? "capture" : "move");
+    return true;
+  }, [game, tab, fen, ply, sound]);
+
+  useEffect(() => {
+    if (!exploring) return;
+    let stale = false;
+    setVariationEval(undefined);
+    setVariationError(null);
+    const eng = variationEngineRef.current ?? new Engine();
+    variationEngineRef.current = eng;
+    eng.cancel();
+    eng.analyze(fen).then((result) => { if (!stale) setVariationEval(result); }).catch((error) => {
+      if (!stale) setVariationError((error as Error).message);
+    });
+    return () => { stale = true; eng.cancel(); };
+  }, [exploring, fen]);
   const hint = showHint && cur?.lines[0] ? { from: cur.lines[0].uci.slice(0, 2), to: cur.lines[0].uci.slice(2, 4) } : undefined;
   const h = game?.headers ?? {};
   const analyzed = !!game && done >= total;
@@ -188,7 +218,7 @@ export function Analyzer() {
   const clockFor = (color: "w" | "b") => {
     if (!clocks || (!clocks.any && !clocks.base)) return "--:--";
     let t: number | null = clocks.base;
-    for (let i = 0; i < ply; i++) if (game!.moves[i].color === color && clocks.perPly[i] !== null) t = clocks.perPly[i];
+    for (let i = 0; i < ply; i++) if (game?.moves[i].color === color && clocks.perPly[i] !== null) t = clocks.perPly[i];
     if (t === null) return "--:--";
     const hh = Math.floor(t / 3600);
     const mm = Math.floor((t % 3600) / 60);
@@ -210,7 +240,8 @@ export function Analyzer() {
         endgame = mat <= 26;
       }
       const ph = endgame ? "Endgame" : i < 20 ? "Opening" : "Middlegame";
-      if (infos[i]) res[ph][m.color].push(infos[i]!.accuracy);
+      const info = infos[i];
+      if (info) res[ph][m.color].push(info.accuracy);
     });
     return res;
   }, [game, infos]);
@@ -225,7 +256,8 @@ export function Analyzer() {
     if (!game) return { text: "Hi! Import a game and I'll walk you through the key moments.", ply: null as number | null };
     if (ply > 0 && infos[ply - 1]) {
       const m = game.moves[ply - 1];
-      const inf = infos[ply - 1]!;
+      const inf = infos[ply - 1];
+      if (!inf) return { text: "Calculating…", ply: null };
       const best = evals[ply - 1]?.lines[0];
       const lbl = CLASS_META[inf.cls].label;
       const alt = best && best.san !== m.san && !["best", "brilliant", "great"].includes(inf.cls) ? ` The engine preferred ${best.san}.` : "";
@@ -246,7 +278,7 @@ export function Analyzer() {
   const share = async () => {
     const p = coach.ply ?? ply;
     const m = game && p > 0 ? game.moves[p - 1] : null;
-    const text = m ? `${Math.floor((p - 1) / 2) + 1}${m.color === "w" ? "." : "..."} ${m.san} — ${coach.text}\nFEN: ${game!.fens[p]}\nReviewed on NafChessLog` : fen;
+    const text = m ? `${Math.floor((p - 1) / 2) + 1}${m.color === "w" ? "." : "..."} ${m.san} — ${coach.text}\nFEN: ${game?.fens[p]}\nReviewed on NafChessLog` : fen;
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -285,12 +317,12 @@ export function Analyzer() {
             <div className="relative min-w-0 flex-1">
               <ClientOnly fallback={<div className="aspect-square w-full rounded-md bg-card" />}>
                 <Suspense fallback={<div className="aspect-square w-full rounded-md bg-card" />}>
-                  <Board fen={fen} orientation={orientation} lastMove={last} hint={hint} />
+                  <Board fen={fen} orientation={orientation} lastMove={last} hint={hint} onMove={tab === "analysis" && game ? makeMove : undefined} />
                 </Suspense>
               </ClientOnly>
-              {last && infos[ply - 1] && (
+              {!exploring && last && infos[ply - 1] && (
                 <div className="pointer-events-none absolute right-1.5 top-1.5 rounded-full bg-popover/90 px-2.5 py-1 shadow-lg animate-in fade-in zoom-in-90">
-                  <ClassBadge cls={infos[ply - 1]!.cls} withLabel />
+                  <ClassBadge cls={infos[ply - 1]?.cls ?? "best"} withLabel />
                 </div>
               )}
             </div>
@@ -307,7 +339,7 @@ export function Analyzer() {
               {game?.moves.map((m, i) => (
                 <button key={i} data-active={ply === i + 1} onClick={() => goTo(i + 1)} className="move-chip">
                   {m.color === "w" && <span className="text-xs opacity-60">{i / 2 + 1}.</span>}
-                  {infos[i] && <ClassBadge cls={infos[i]!.cls} />}
+                  {infos[i] && <ClassBadge cls={infos[i]?.cls ?? "best"} />}
                   {m.san}
                 </button>
               ))}
@@ -335,7 +367,7 @@ export function Analyzer() {
         <aside className="card-dash flex min-w-0 flex-col gap-4 self-start p-3 sm:p-4">
           <div className="flex gap-1 rounded-2xl bg-background/60 p-1">
             {TABS.map((t) => (
-              <button key={t.id} data-active={tab === t.id} onClick={() => setTab(t.id)} className="side-tab">
+              <button key={t.id} data-active={tab === t.id} onClick={() => { setTab(t.id); if (t.id !== "analysis") setVariation(null); }} className="side-tab">
                 <span className="text-base leading-none">{t.icon}</span>
                 {t.label}
               </button>
@@ -352,7 +384,7 @@ export function Analyzer() {
                   {game && (
                     <div className="mt-2 flex gap-2">
                       {coach.ply !== null && coach.ply !== ply && (
-                        <button className="btn-ghost h-8 text-xs" onClick={() => goTo(coach.ply!)}>
+                        <button className="btn-ghost h-8 text-xs" onClick={() => { if (coach.ply !== null) goTo(coach.ply); }}>
                           Show me
                         </button>
                       )}
@@ -447,6 +479,18 @@ export function Analyzer() {
 
           {tab === "analysis" && (
             <div className="flex flex-col gap-4 animate-in fade-in duration-300">
+              {game && <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-semibold">{exploring ? "Variation" : "Match position"}</span>
+                  <div className="flex gap-1">
+                    <Button variant="outline" size="icon" title="Undo variation move" aria-label="Undo variation move" disabled={!exploring} onClick={() => { setVariationEval(undefined); setVariation((v) => v && v.moves.length > 1 ? { ...v, moves: v.moves.slice(0, -1) } : null); }}><Undo2 /></Button>
+                    <Button variant="outline" size="sm" disabled={!exploring} onClick={() => setVariation(null)}><RotateCcw />Return to match</Button>
+                  </div>
+                </div>
+                {exploring && <div className="flex min-h-8 flex-wrap gap-1 font-mono text-xs">{variation?.moves.map((m, i) => <span key={i} className="rounded bg-secondary px-2 py-1">{Math.floor((variation.originPly + i) / 2) + 1}{m.color === "w" ? "." : "…"} {m.san}</span>)}</div>}
+                {cur?.lines[0] && <Button variant="secondary" size="sm" className="self-start" onClick={() => { const uci = cur.lines[0].uci; makeMove(uci.slice(0, 2), uci.slice(2, 4), uci[4]); }}><Play />Play best move · {cur.lines[0].san}</Button>}
+                {variationError && <p role="alert" className="text-sm text-destructive">{variationError}</p>}
+              </div>}
               <div>
                 <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wider text-muted-foreground">
                   <span>Engine lines</span>
@@ -484,7 +528,7 @@ export function Analyzer() {
                                 <td key={j} className="w-1/2">
                                   <button data-active={ply === j + 1} onClick={() => goTo(j + 1)} className="move-cell">
                                     <span>{game.moves[j].san}</span>
-                                    {infos[j] && <ClassBadge cls={infos[j]!.cls} />}
+                                    {infos[j] && <ClassBadge cls={infos[j]?.cls ?? "best"} />}
                                   </button>
                                 </td>
                               ) : (
@@ -526,7 +570,7 @@ export function Analyzer() {
                       </span>
                       <span className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground">
                         {CLASS_META[x.cls].label}
-                        {evals[i]?.lines[0] && !["brilliant", "great"].includes(x.cls) ? ` · best ${evals[i]!.lines[0].san}` : ""}
+                        {evals[i]?.lines[0] && !["brilliant", "great"].includes(x.cls) ? ` · best ${evals[i]?.lines[0]?.san}` : ""}
                       </span>
                     </button>
                   ) : null,
