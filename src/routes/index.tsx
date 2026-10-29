@@ -37,7 +37,7 @@ function Index() {
         </div>
       </header>
       <main className="flex-1">
-        <Analyzer key={s ? "loaded" : "default"} defaultSound={s?.default_sound ?? true} defaultBlackView={s?.default_black_view ?? false} />
+        <Analyzer defaultSound={s?.default_sound ?? true} defaultBlackView={s?.default_black_view ?? false} />
       </main>
       <footer className="border-t border-border py-6 text-sm text-muted-foreground">
         {s && <OwnerCard s={s} />}
