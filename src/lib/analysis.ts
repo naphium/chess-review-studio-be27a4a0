@@ -62,11 +62,12 @@ export function classifyMove(move: Move, before: PositionEval, after: PositionEv
   const sign = move.color === "w" ? 1 : -1;
   const b = cap(evalNum(before, move.before) * sign);
   const a = cap(evalNum(after, move.after) * sign);
-  const loss = Math.max(0, b - a);
-  const wl = Math.max(0, winPct(b) - winPct(a));
-  const accuracy = Math.max(0, Math.min(100, 103.1668 * Math.exp(-0.04354 * wl) - 3.1669));
   const uci = move.from + move.to + (move.promotion ?? "");
   const isBest = before.lines[0]?.uci === uci;
+  // The engine's top move cannot lose value; any drop is search-depth noise.
+  const loss = isBest ? 0 : Math.max(0, b - a);
+  const wl = isBest ? 0 : Math.max(0, winPct(b) - winPct(a));
+  const accuracy = isBest ? 100 : Math.max(0, Math.min(100, 103.1668 * Math.exp(-0.04354 * wl) - 3.1669));
 
   let cls: Classification;
   if (isBest || wl < 1) {

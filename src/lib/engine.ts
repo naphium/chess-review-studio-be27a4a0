@@ -2,7 +2,8 @@ import { Chess } from "chess.js";
 
 export type Score = { cp: number; mate?: number }; // white perspective
 export type Line = { uci: string; san: string; score: Score; pv: string[] };
-export type PositionEval = { score: Score; lines: Line[] };
+export type EvalSource = "cloud" | "stockfish" | "basic" | "terminal";
+export type PositionEval = { score: Score; lines: Line[]; source?: EvalSource };
 
 const SF_URL = "https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js";
 const VALUES: Record<string, number> = { p: 100, n: 300, b: 320, r: 500, q: 900, k: 0 };
@@ -93,22 +94,27 @@ export class Engine {
     return this.ready;
   }
 
-  private cloudMisses = 0;
+  /** Per-game: cloud stays enabled only while every position so far came from the cloud. */
+  private cloudEnabled = true;
+  private queue: Promise<unknown> = Promise.resolve();
   resetCloud() {
-    this.cloudMisses = 0;
+    this.cloudEnabled = true;
+  }
+  /** Force local engine for the rest of this game (avoids mixing evaluation depths). */
+  disableCloud() {
+    this.cloudEnabled = false;
   }
 
   /** Deep (often depth 30+) evaluations from Lichess' shared cloud database. */
   private async cloud(fen: string): Promise<PositionEval | null> {
-    if (this.cloudMisses >= 3) return null;
+    if (!this.cloudEnabled) return null;
     try {
       const r = await fetch(`https://lichess.org/api/cloud-eval?fen=${encodeURIComponent(fen)}&multiPv=2`);
       if (!r.ok) {
-        this.cloudMisses++;
+        this.cloudEnabled = false;
         return null;
       }
       const d = (await r.json()) as { pvs: { moves: string; cp?: number; mate?: number }[] };
-      this.cloudMisses = 0;
       const lines: Line[] = d.pvs.map((pv) => {
         const uciMoves = pv.moves.split(" ");
         const sans = uciToSan(fen, uciMoves);
@@ -117,19 +123,26 @@ export class Engine {
       });
       return lines.length ? { score: lines[0].score, lines } : null;
     } catch {
-      this.cloudMisses++;
+      this.cloudEnabled = false;
       return null;
     }
   }
 
-  async analyze(fen: string, depth = 15): Promise<PositionEval> {
+  /** Searches are serialized: only one runs on the worker at a time. */
+  analyze(fen: string, depth = 15): Promise<PositionEval> {
+    const job = this.queue.then(() => this.run(fen, depth));
+    this.queue = job.catch(() => undefined);
+    return job;
+  }
+
+  private async run(fen: string, depth: number): Promise<PositionEval> {
     const c = new Chess(fen);
-    if (c.isCheckmate()) return { score: { cp: c.turn() === "w" ? -10000 : 10000 }, lines: [] };
-    if (c.isGameOver()) return { score: { cp: 0 }, lines: [] };
+    if (c.isCheckmate()) return { score: { cp: c.turn() === "w" ? -10000 : 10000 }, lines: [], source: "terminal" };
+    if (c.isGameOver()) return { score: { cp: 0 }, lines: [], source: "terminal" };
     const cloud = await this.cloud(fen);
-    if (cloud) return cloud;
+    if (cloud) return { ...cloud, source: "cloud" };
     const ok = await this.ready;
-    if (!ok || !this.worker) return mockEval(fen);
+    if (!ok || !this.worker) return { ...mockEval(fen), source: "basic" };
     const side = c.turn() === "w" ? 1 : -1;
     const w = this.worker;
     return new Promise((resolve) => {
@@ -152,7 +165,8 @@ export class Engine {
               const sans = uciToSan(fen, lines[k].pv);
               return { uci: lines[k].pv[0], san: sans[0] ?? lines[k].pv[0], score: lines[k].score, pv: sans };
             });
-          resolve({ score: out[0]?.score ?? { cp: 0 }, lines: out });
+          w.onmessage = null;
+          resolve({ score: out[0]?.score ?? { cp: 0 }, lines: out, source: "stockfish" });
         }
       };
       w.postMessage(`position fen ${fen}`);

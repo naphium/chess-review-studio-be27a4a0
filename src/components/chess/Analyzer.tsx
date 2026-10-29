@@ -70,9 +70,21 @@ export function Analyzer() {
     const id = ++runId.current;
     const eng = engineRef.current!;
     eng.resetCloud();
+    let gameSource: string | undefined;
     for (let i = 0; i < g.fens.length; i++) {
       const r = await eng.analyze(g.fens[i], 15);
       if (runId.current !== id) return;
+      if (r.source !== "terminal") {
+        if (!gameSource) gameSource = r.source;
+        else if (r.source !== gameSource) {
+          // Cloud dropped out mid-game: redo the whole game locally so depths stay consistent.
+          eng.disableCloud();
+          gameSource = r.source;
+          setEvals([]);
+          i = -1;
+          continue;
+        }
+      }
       setEvals((prev) => {
         const n = [...prev];
         n[i] = r;
