@@ -24,7 +24,7 @@ const Board = lazy(() => import("./Board"));
 
 type MoveInfo = { cls: Classification; loss: number; accuracy: number };
 
-export function Analyzer() {
+export function Analyzer({ defaultSound = true, defaultBlackView = false }: { defaultSound?: boolean; defaultBlackView?: boolean } = {}) {
   const [meta, setMeta] = useState<PlayerMeta>({});
   const [error, setError] = useState<string | null>(null);
   const [game, setGame] = useState<ParsedGame | null>(null);
@@ -33,11 +33,13 @@ export function Analyzer() {
   const [variationEval, setVariationEval] = useState<PositionEval | undefined>();
   const [variationError, setVariationError] = useState<string | null>(null);
   const variationEngineRef = useRef<Engine | null>(null);
-  const [orientation, setOrientation] = useState<"white" | "black">("white");
+  const [orientation, setOrientation] = useState<"white" | "black">(defaultBlackView ? "black" : "white");
   const [evals, setEvals] = useState<(PositionEval | undefined)[]>([]);
   const [inputOpen, setInputOpen] = useState(true);
   const [engineName, setEngineName] = useState("Loading engine…");
-  const [sound, setSound] = useState(true);
+  const [sound, setSound] = useState(defaultSound);
+  useEffect(() => { setSound(defaultSound); }, [defaultSound]);
+  useEffect(() => { setOrientation(defaultBlackView ? "black" : "white"); }, [defaultBlackView]);
   const [tab, setTab] = useState<SideTab>("report");
   const [showHint, setShowHint] = useState(true);
   const [copied, setCopied] = useState(false);
