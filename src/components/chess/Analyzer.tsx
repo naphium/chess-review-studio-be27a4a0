@@ -26,6 +26,9 @@ const Board = lazy(() => import("./Board"));
 type MoveInfo = { cls: Classification; loss: number; accuracy: number };
 
 export function Analyzer({ defaultSound = true, defaultBlackView = false }: { defaultSound?: boolean; defaultBlackView?: boolean } = {}) {
+  const settings = useSiteSettings();
+  const { data: discordLive } = useDiscordPresence(settings?.discord_user_id || undefined);
+  const coachSrc = discordLive?.avatar || settings?.avatar_url || coachImg;
   const [meta, setMeta] = useState<PlayerMeta>({});
   const [error, setError] = useState<string | null>(null);
   const [game, setGame] = useState<ParsedGame | null>(null);
@@ -395,7 +398,7 @@ export function Analyzer({ defaultSound = true, defaultBlackView = false }: { de
             <div className="flex flex-col gap-4 animate-in fade-in duration-300">
               {/* Coach */}
               <div className="flex gap-3">
-                <img src={coachImg} alt="Coach" loading="lazy" width={64} height={64} className="h-14 w-14 shrink-0 rounded-full border border-border object-cover sm:h-16 sm:w-16" />
+                <img src={coachSrc} alt="Coach" loading="lazy" width={64} height={64} className="h-14 w-14 shrink-0 rounded-full border border-border object-cover sm:h-16 sm:w-16" />
                 <div className="min-w-0 flex-1">
                   <div className="bubble">{coach.text}</div>
                   {game && (
