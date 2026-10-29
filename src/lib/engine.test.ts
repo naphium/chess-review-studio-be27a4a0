@@ -8,7 +8,8 @@ class FakeWorker {
   onerror: (() => void) | null = null;
   commands: string[] = [];
   constructor() { FakeWorker.workers.push(this); }
-  postMessage(command: string) {
+  postMessage(command: string | object) {
+    if (typeof command !== "string") return; // shared engine-file hand-off
     this.commands.push(command);
     if (command === "uci") queueMicrotask(() => this.emit("uciok"));
     if (command === "isready") queueMicrotask(() => this.emit("readyok"));

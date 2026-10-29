@@ -25,6 +25,25 @@ function uciToSan(fen: string, pv: string[]): string[] {
 // Only completed, full-depth searches are reused across review and exploration.
 const cache = new Map<string, PositionEval>();
 
+// The engine file is downloaded and compiled once per page, then shared with every worker.
+let modulePromise: Promise<WebAssembly.Module | null> | null = null;
+function loadModule(url: string): Promise<WebAssembly.Module | null> {
+  if (!modulePromise) {
+    modulePromise = (async () => {
+      try {
+        if (typeof WebAssembly === "undefined") return null;
+        try { return await WebAssembly.compileStreaming(fetch(url)); }
+        catch {
+          const res = await fetch(url);
+          if (!res.ok) return null;
+          return await WebAssembly.compile(await res.arrayBuffer());
+        }
+      } catch { return null; } // worker then loads the file itself
+    })();
+  }
+  return modulePromise;
+}
+
 export class Engine {
   private worker: Worker | null = null;
   private ready: Promise<boolean>;
@@ -39,7 +58,7 @@ export class Engine {
         const wasmUrl = new URL(engineAsset.url, window.location.origin).href;
         const w = new Worker(`/engine/stockfish-19/stockfish-19-single.js#${encodeURIComponent(wasmUrl)}`);
         this.worker = w;
-        const timer = setTimeout(() => { w.terminate(); this.worker = null; resolve(false); }, 120000);
+        const timer = setTimeout(() => { w.terminate(); this.worker = null; resolve(false); }, 300000);
         w.onmessage = (e) => {
           const msg = String(e.data);
           if (msg === "uciok") {
@@ -54,6 +73,9 @@ export class Engine {
         };
         w.onerror = () => { clearTimeout(timer); w.terminate(); this.worker = null; resolve(false); };
         w.postMessage("uci");
+        loadModule(wasmUrl).then((wasmModule) => {
+          try { w.postMessage({ wasmModule }); } catch { w.postMessage({ wasmModule: null }); }
+        });
       } catch { resolve(false); }
     });
   }
