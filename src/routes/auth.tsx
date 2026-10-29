@@ -31,12 +31,12 @@ function AuthPage() {
     if (mode === "in") {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) setMsg(error.message);
-      else navigate({ to: "/portal" });
+      else navigate({ to: "/owner" });
     } else {
-      const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin + "/portal" } });
+      const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin + "/owner" } });
       if (error) setMsg(error.message);
       else if (!data.session) setMsg("Check your email to confirm your account, then sign in.");
-      else navigate({ to: "/portal" });
+      else navigate({ to: "/owner" });
     }
     setBusy(false);
   }

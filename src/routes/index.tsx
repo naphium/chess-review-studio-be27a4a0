@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { Analyzer } from "@/components/chess/Analyzer";
 import { OwnerCard } from "@/components/OwnerCard";
 import { useSiteSettings } from "@/lib/site-settings";
@@ -33,7 +33,6 @@ function Index() {
             {a}<span className="text-primary">{b}</span>{c}
           </h1>
           <span className="ml-2 hidden text-sm text-muted-foreground sm:inline">{s?.tagline ?? "Game Review"}</span>
-          <Link to="/portal" className="ml-auto text-xs text-muted-foreground hover:text-primary">Owner</Link>
         </div>
       </header>
       <main className="flex-1">
