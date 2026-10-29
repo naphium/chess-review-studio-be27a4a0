@@ -47,11 +47,17 @@ export function Analyzer() {
   const runId = useRef(0);
   const moveListRef = useRef<HTMLDivElement>(null);
 
+  const poolRef = useRef<Engine[]>([]);
   useEffect(() => {
     const e = new Engine();
     engineRef.current = e;
-    e.isReady().then((ok) => setEngineName(ok ? "Stockfish 19 NNUE · depth 18" : "Engine unavailable"));
-    return () => { e.terminate(); variationEngineRef.current?.terminate(); };
+    e.isReady().then((ok) => {
+      setEngineName(ok ? "Stockfish 19 NNUE · depth 18" : "Engine unavailable");
+      // Extra review workers start after the first is loaded (engine file is then cached).
+      const extra = Math.max(0, Math.min(3, (navigator.hardwareConcurrency || 2) - 2));
+      if (ok) poolRef.current = Array.from({ length: extra }, () => new Engine());
+    });
+    return () => { e.terminate(); poolRef.current.forEach((p) => p.terminate()); variationEngineRef.current?.terminate(); };
   }, []);
 
   const review = async (text: string, source?: GameSummary) => {
@@ -80,16 +86,24 @@ export function Analyzer() {
     const eng = engineRef.current;
     if (!eng) { setError("The chess engine is not ready. Please retry."); return; }
     eng.cancel();
+    poolRef.current.forEach((p) => p.cancel());
     try {
-    for (let i = 0; i < g.fens.length; i++) {
-      const r = await eng.analyze(g.fens[i]);
-      if (runId.current !== id) return;
-      setEvals((prev) => {
-        const n = [...prev];
-        n[i] = r;
-        return n;
-      });
-    }
+    // Parallel full-depth workers; each search clears its hash, so results are identical to a single worker.
+    const workers = [eng, ...poolRef.current];
+    let next = 0;
+    await Promise.all(workers.map(async (w) => {
+      while (runId.current === id) {
+        const i = next++;
+        if (i >= g.fens.length) return;
+        const r = await w.analyze(g.fens[i]);
+        if (runId.current !== id) return;
+        setEvals((prev) => {
+          const n = [...prev];
+          n[i] = r;
+          return n;
+        });
+      }
+    }));
     } catch (e) {
       if (runId.current === id) setError((e as Error).message);
     }
@@ -166,7 +180,8 @@ export function Analyzer() {
   const exploring = tab === "analysis" && !!variation?.moves.length;
   const fen = exploring ? variationFen(originalFen, variation) : originalFen;
   const last = exploring ? variation?.moves.at(-1) : game && ply > 0 ? game.moves[ply - 1] : undefined;
-  const cur = exploring ? variationEval : evals[ply];
+  const needLive = tab === "analysis" && !!game && (exploring || !evals[ply]);
+  const cur = exploring ? variationEval : evals[ply] ?? variationEval;
   const makeMove = useCallback((from: string, to: string, promotion?: string) => {
     if (!game || tab !== "analysis") return false;
     const move = playVariation(fen, from, to, promotion);
@@ -178,7 +193,7 @@ export function Analyzer() {
   }, [game, tab, fen, ply, sound]);
 
   useEffect(() => {
-    if (!exploring) return;
+    if (!needLive) return;
     let stale = false;
     setVariationEval(undefined);
     setVariationError(null);
@@ -189,7 +204,7 @@ export function Analyzer() {
       if (!stale) setVariationError((error as Error).message);
     });
     return () => { stale = true; eng.cancel(); };
-  }, [exploring, fen]);
+  }, [needLive, fen]);
   const hint = showHint && cur?.lines[0] ? { from: cur.lines[0].uci.slice(0, 2), to: cur.lines[0].uci.slice(2, 4) } : undefined;
   const h = game?.headers ?? {};
   const analyzed = !!game && done >= total;
