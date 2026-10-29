@@ -8,39 +8,63 @@ export function OwnerCard({ s }: { s: SiteSettings }) {
   const { data: live } = useDiscordPresence(s.discord_user_id || undefined);
   const avatar = live?.avatar || s.avatar_url;
   const handle = live?.username || s.discord_username;
+  const name = live?.displayName && !s.owner_name ? live.displayName : s.owner_name;
   const profileUrl = s.discord_user_id ? `https://discord.com/users/${s.discord_user_id}` : undefined;
-  const links = [
-    ["Portfolio", s.portfolio_url], ["GitHub", s.github_url], ["YouTube", s.youtube_url], ["X", s.x_url],
-    ["Discord server", s.discord_server_invite], ["Buy Me a Coffee ☕", s.donate_url],
+  const mainLinks = [
+    ["Portfolio", s.portfolio_url],
+    ["Buy Me a Coffee ☕", s.donate_url],
+  ].filter(([, u]) => u);
+  const otherLinks = [
+    ["GitHub", s.github_url],
+    ["YouTube", s.youtube_url],
+    ["X", s.x_url],
+    ["Discord server", s.discord_server_invite],
   ].filter(([, u]) => u);
 
   return (
-    <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
+    <div className="mx-auto flex max-w-3xl flex-col items-center gap-6 px-4 sm:flex-row sm:items-start sm:justify-between">
+      {/* Left: Discord presence */}
       <div className="flex items-center gap-3">
         <div className="relative">
           {avatar ? (
-            <img src={avatar} alt={s.owner_name} className="h-12 w-12 rounded-full border border-border object-cover" />
+            <img src={avatar} alt={name} className="h-12 w-12 rounded-full border border-border object-cover" />
           ) : (
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-secondary font-display text-lg text-primary">
-              {s.owner_name.slice(0, 1)}
+              {name.slice(0, 1)}
             </div>
           )}
           {live && <span className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-background ${STATUS[live.status]}`} />}
         </div>
         <div className="text-left">
-          <p className="font-semibold text-foreground">Built by {live?.displayName && !s.owner_name ? live.displayName : s.owner_name}</p>
+          <p className="font-semibold text-foreground">Built by {name}</p>
           {handle && (
             <a href={profileUrl} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">
-              Discord: @{handle}{live?.activity ? ` · ${live.activity}` : ""}
+              Discord: @{handle}
             </a>
           )}
+          {live && (
+            <p className="text-xs text-muted-foreground capitalize">
+              {live.status}{live.activity ? ` · Playing ${live.activity}` : ""}
+            </p>
+          )}
+          {s.owner_bio && <p className="mt-1 max-w-xs text-xs text-muted-foreground">{s.owner_bio}</p>}
         </div>
       </div>
-      {s.owner_bio && <p className="text-sm">{s.owner_bio}</p>}
-      <div className="flex flex-wrap justify-center gap-2">
-        {links.map(([label, url]) => (
-          <a key={label} href={url} target="_blank" rel="noreferrer" className="chip">{label}</a>
+
+      {/* Right: links */}
+      <div className="flex flex-col items-center gap-2 sm:items-end">
+        {mainLinks.map(([label, url]) => (
+          <a key={label} href={url} target="_blank" rel="noreferrer" className="btn-primary h-9 text-xs">
+            {label}
+          </a>
         ))}
+        {otherLinks.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-2 sm:justify-end">
+            {otherLinks.map(([label, url]) => (
+              <a key={label} href={url} target="_blank" rel="noreferrer" className="chip">{label}</a>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
