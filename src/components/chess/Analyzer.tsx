@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ClientOnly } from "@tanstack/react-router";
 import { Chess } from "chess.js";
-import { Engine, type PositionEval } from "@/lib/engine";
+import { Engine, splitRanges, type PositionEval } from "@/lib/engine";
 import { classifyMove, CLASS_META, formatScore, parsePgn, type Classification, type ParsedGame } from "@/lib/analysis";
 import { bookFlags } from "@/lib/book";
 import { playMoveSound } from "@/lib/sounds";
@@ -61,7 +61,7 @@ export function Analyzer({ defaultSound = true, defaultBlackView = false }: { de
       // Extra review workers start after the first is loaded (engine file is then cached).
       const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 4;
       const cap = mem >= 8 ? 5 : 3;
-      const extra = Math.max(0, Math.min(cap, (navigator.hardwareConcurrency || 2) - 1));
+      const extra = Math.max(0, Math.min(cap, (navigator.hardwareConcurrency || 2) - 2));
       if (ok) poolRef.current = Array.from({ length: extra }, () => new Engine());
     });
     return () => { e.terminate(); poolRef.current.forEach((p) => p.terminate()); variationEngineRef.current?.terminate(); };
