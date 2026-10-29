@@ -12,3 +12,4 @@
 ## Chess analysis
 - Use the full single-thread Stockfish NNUE worker with CDN-hosted WASM, fixed-depth MultiPV searches, and complete-result caching; this preserves consistent evaluation strength without requiring cross-origin isolation.
 - Keep exploratory legal moves in a separate variation and engine from original PGN review; exploration must never change original move classifications or accuracy.
+- Site-wide owner customization lives in the single-row `site_settings` table (public read, admin-only update via `has_role`); the first account to sign up is auto-granted admin, so owner powers never depend on client checks.
