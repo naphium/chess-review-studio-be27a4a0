@@ -22,10 +22,10 @@ export function OwnerCard({ s }: { s: SiteSettings }) {
   ].filter(([, u]) => u);
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col items-center gap-6 px-4 sm:flex-row sm:items-start sm:justify-between">
+    <div className="mx-auto flex w-full max-w-3xl flex-col items-stretch gap-6 px-4 sm:flex-row sm:items-start sm:justify-between">
       {/* Left: Discord presence */}
-      <div className="flex items-center gap-3">
-        <div className="relative">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="relative shrink-0">
           {avatar ? (
             <img src={avatar} alt={name} className="h-12 w-12 rounded-full border border-border object-cover" />
           ) : (
@@ -35,26 +35,26 @@ export function OwnerCard({ s }: { s: SiteSettings }) {
           )}
           {live && <span className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-background ${STATUS[live.status]}`} />}
         </div>
-        <div className="text-left">
-          <p className="font-semibold text-foreground">Built by {name}</p>
+        <div className="min-w-0 text-left">
+          <p className="truncate font-semibold text-foreground">Built by {name}</p>
           {handle && (
             <a href={profileUrl} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">
               Discord: @{handle}
             </a>
           )}
           {live && (
-            <p className="text-xs text-muted-foreground capitalize">
+            <p className="truncate text-xs text-muted-foreground capitalize">
               {live.status}{live.activity ? ` · Playing ${live.activity}` : ""}
             </p>
           )}
-          {s.owner_bio && <p className="mt-1 max-w-xs text-xs text-muted-foreground">{s.owner_bio}</p>}
+          {s.owner_bio && <p className="mt-1 text-xs text-muted-foreground">{s.owner_bio}</p>}
         </div>
       </div>
 
       {/* Right: links */}
-      <div className="flex flex-col items-center gap-2 sm:items-end">
+      <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:items-end">
         {mainLinks.map(([label, url]) => (
-          <a key={label} href={url} target="_blank" rel="noreferrer" className="btn-primary h-9 text-xs">
+          <a key={label} href={url} target="_blank" rel="noreferrer" className="btn-primary h-10 w-full justify-center text-xs sm:h-9 sm:w-auto">
             {label}
           </a>
         ))}
