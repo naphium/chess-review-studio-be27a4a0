@@ -112,7 +112,6 @@ export function Analyzer() {
       if (inf.cls === "book") return; // book moves don't count toward accuracy
       s[m.color].acc.push(inf.accuracy);
       s[m.color].loss.push(Math.min(inf.loss, 1000));
-      s[m.color].counts[inf.cls] = (s[m.color].counts[inf.cls] ?? 0) + 1;
     });
     const avg = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
     const fin = (x: typeof s.w) => {
