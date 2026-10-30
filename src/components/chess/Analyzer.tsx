@@ -34,7 +34,7 @@ export function Analyzer({ defaultSound = true, defaultBlackView = false }: { de
   const [game, setGame] = useState<ParsedGame | null>(null);
   const [ply, setPly] = useState(0);
   const [variation, setVariation] = useState<Variation | null>(null);
-  const [variationEval, setVariationEval] = useState<PositionEval | undefined>();
+  const [variationEval, setVariationEval] = useState<{ fen: string; result: PositionEval } | undefined>();
   const [variationError, setVariationError] = useState<string | null>(null);
   const variationEngineRef = useRef<Engine | null>(null);
   const [orientation, setOrientation] = useState<"white" | "black">(defaultBlackView ? "black" : "white");
@@ -54,9 +54,11 @@ export function Analyzer({ defaultSound = true, defaultBlackView = false }: { de
 
   const poolRef = useRef<Engine[]>([]);
   useEffect(() => {
+    let mounted = true;
     const e = new Engine();
     engineRef.current = e;
     e.isReady().then((ok) => {
+      if (!mounted) return;
       setEngineName(ok ? "Stockfish 19 NNUE · depth 18" : "Engine unavailable");
       // Extra review workers start after the first is loaded (engine file is then cached).
       const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 4;
@@ -64,7 +66,7 @@ export function Analyzer({ defaultSound = true, defaultBlackView = false }: { de
       const extra = Math.max(0, Math.min(cap, (navigator.hardwareConcurrency || 2) - 2));
       if (ok) poolRef.current = Array.from({ length: extra }, () => new Engine());
     });
-    return () => { e.terminate(); poolRef.current.forEach((p) => p.terminate()); variationEngineRef.current?.terminate(); };
+    return () => { mounted = false; runId.current++; e.terminate(); poolRef.current.forEach((p) => p.terminate()); variationEngineRef.current?.terminate(); };
   }, []);
 
   const review = async (text: string, source?: GameSummary) => {
@@ -76,20 +78,22 @@ export function Analyzer({ defaultSound = true, defaultBlackView = false }: { de
       setError((e as Error).message);
       return;
     }
+    const id = ++runId.current;
     setGame(g);
     setLastPgn(text);
     setPgnText(text);
     setMeta({});
     const plat = source?.platform ?? (/chess\.com/i.test(g.headers.Site ?? "") ? "chesscom" : /lichess/i.test(g.headers.Site ?? "") ? "lichess" : undefined);
     if (plat === "chesscom" && g.headers.White && g.headers.Black)
-      fetchChessComAvatars(g.headers.White, g.headers.Black).then(setMeta);
+      fetchChessComAvatars(g.headers.White, g.headers.Black).then((nextMeta) => { if (runId.current === id) setMeta(nextMeta); }).catch(() => undefined);
     else if (plat) setMeta({ platform: plat });
     if (source) setOrientation(source.userColor === "w" ? "white" : "black");
     setPly(0);
     setVariation(null);
+    setVariationEval(undefined);
+    setVariationError(null);
     setEvals([]);
     setInputOpen(false);
-    const id = ++runId.current;
     const eng = engineRef.current;
     if (!eng) { setError("The chess engine is not ready. Please retry."); return; }
     const workers = [eng, ...poolRef.current];
@@ -191,7 +195,8 @@ export function Analyzer({ defaultSound = true, defaultBlackView = false }: { de
   const fen = exploring ? variationFen(originalFen, variation) : originalFen;
   const last = exploring ? variation?.moves.at(-1) : game && ply > 0 ? game.moves[ply - 1] : undefined;
   const needLive = tab === "analysis" && !!game && (exploring || !evals[ply]);
-  const cur = exploring ? variationEval : evals[ply] ?? variationEval;
+  const liveEval = tab === "analysis" && variationEval?.fen === fen ? variationEval.result : undefined;
+  const cur = exploring ? liveEval : evals[ply] ?? liveEval;
   const makeMove = useCallback((from: string, to: string, promotion?: string) => {
     if (!game || tab !== "analysis") return false;
     const move = playVariation(fen, from, to, promotion);
@@ -203,14 +208,14 @@ export function Analyzer({ defaultSound = true, defaultBlackView = false }: { de
   }, [game, tab, fen, ply, sound]);
 
   useEffect(() => {
-    if (!needLive) return;
+    if (!needLive) { setVariationError(null); return; }
     let stale = false;
     setVariationEval(undefined);
     setVariationError(null);
     const eng = variationEngineRef.current ?? new Engine();
     variationEngineRef.current = eng;
     eng.cancel();
-    eng.analyze(fen).then((result) => { if (!stale) setVariationEval(result); }).catch((error) => {
+    eng.analyze(fen).then((result) => { if (!stale) setVariationEval({ fen, result }); }).catch((error) => {
       if (!stale) setVariationError((error as Error).message);
     });
     return () => { stale = true; eng.cancel(); };
