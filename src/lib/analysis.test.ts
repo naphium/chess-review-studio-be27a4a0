@@ -38,9 +38,6 @@ describe("book and brilliant", () => {
   });
 
   it("does not mark an equal bishop trade as brilliant", () => {
-    const move = new Chess("rnbqk1nr/pppp1ppp/8/2b1p3/2B1P3/8/PPPP1PPP/RNBQK1NR w KQkq - 0 1").move("Bxf7+");
-    // Kxf7 cannot be recaptured: bishop for pawn remains a sacrifice.
-    // Use an actual equal trade instead.
     const trade = new Chess("4k3/8/8/3b4/2B5/8/8/4K3 w - - 0 1").move("Bxd5");
     const ev = { score: { cp: 0 }, lines: [{ uci: "c4d5", san: trade.san, score: { cp: 0 }, pv: [] }] };
     expect(classifyMove(trade, ev, ev).cls).toBe("best");
