@@ -13,14 +13,21 @@ describe("estimateElo", () => {
     expect(e.elo).toBeLessThan(1900);
     expect(e.confidence).toBe("low");
   });
-  it("maps 75% accuracy to 1300", () => {
-    expect(accuracyToElo(75)).toBe(1300);
+  it("maps 75% accuracy to 1450 and 85% to 1950", () => {
+    expect(accuracyToElo(75)).toBe(1450);
+    expect(accuracyToElo(85)).toBe(1950);
+  });
+  it("rates a solid game (86% accuracy, 30 ACPL, no blunders) above 1800", () => {
+    expect(estimateElo({ accuracy: 86, acpl: 30, counts: { best: 15, excellent: 8, good: 5, inaccuracy: 2 }, moves: 30 }).elo).toBeGreaterThan(1800);
   });
   it("rates a mediocre game (80% accuracy, 45 ACPL, 1 blunder) below 1700", () => {
     expect(estimateElo({ accuracy: 80, acpl: 45, counts: { best: 12, good: 15, mistake: 2, blunder: 1 }, moves: 30 }).elo).toBeLessThan(1700);
   });
   it("drags game accuracy down for blunders", () => {
     const acc = gameAccuracy([...Array(18).fill(100), 10, 10])!;
-    expect(acc).toBeLessThan(75);
+    expect(acc).toBeLessThan(85);
+  });
+  it("does not let two 0% moves collapse an otherwise perfect game", () => {
+    expect(gameAccuracy([...Array(18).fill(100), 0, 0])!).toBeGreaterThan(75);
   });
 });

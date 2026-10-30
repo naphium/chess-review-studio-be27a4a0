@@ -1,16 +1,18 @@
 import type { Classification } from "./analysis";
 
-// Accuracy -> rating anchor points (piecewise linear).
+// Accuracy -> rating anchor points (piecewise linear), roughly matching
+// how online game-review ratings line up with accuracy.
 const ANCHORS: [number, number][] = [
   [0, 300],
-  [50, 500],
-  [65, 900],
-  [75, 1300],
-  [82, 1650],
-  [88, 2050],
-  [93, 2450],
-  [97, 2800],
-  [100, 3100],
+  [50, 600],
+  [60, 900],
+  [70, 1250],
+  [75, 1450],
+  [80, 1700],
+  [85, 1950],
+  [90, 2250],
+  [95, 2600],
+  [100, 3000],
 ];
 
 export function accuracyToElo(acc: number): number {
@@ -27,6 +29,8 @@ export type EloEstimate = { elo: number; note: string; confidence: "low" | "medi
 
 /**
  * Estimates performance Elo from accuracy, ACPL, move-class ratios and game length.
+ * Accuracy and ACPL already include the cost of bad moves, so the move-class
+ * adjustment is kept small to avoid punishing the same blunder three times.
  * Short games are shrunk toward 1500 because they carry little signal.
  */
 export function estimateElo(input: {
@@ -44,9 +48,9 @@ export function estimateElo(input: {
 
   const accElo = accuracyToElo(accuracy);
   const acplElo = Math.max(400, Math.min(3200, 2850 - 26 * Math.min(acpl, 100)));
-  const ratioAdj = (top / n - 0.5) * 200 - (blunders / n) * 1500 - (mistakes / n) * 600 - (inacc / n) * 200;
+  const ratioAdj = (top / n - 0.45) * 300 - (blunders / n) * 600 - (mistakes / n) * 250 - (inacc / n) * 80;
 
-  const raw = 0.55 * accElo + 0.45 * acplElo + ratioAdj;
+  const raw = 0.65 * accElo + 0.35 * acplElo + ratioAdj;
   const weight = Math.min(1, n / 25);
   const elo = Math.round(Math.max(400, Math.min(3200, 1500 + (raw - 1500) * weight)) / 10) * 10;
 
@@ -61,11 +65,13 @@ export function estimateElo(input: {
 
 /**
  * Game accuracy: average of the arithmetic and harmonic means of per-move accuracy,
- * so a few bad moves pull the score down instead of being hidden by many easy ones.
+ * so bad moves pull the score down instead of being hidden by many easy ones.
+ * Each move is floored at 20 inside the harmonic mean so a single 0% move
+ * cannot collapse the whole game's score.
  */
 export function gameAccuracy(acc: number[]): number | null {
   if (!acc.length) return null;
   const mean = acc.reduce((x, y) => x + y, 0) / acc.length;
-  const harm = acc.length / acc.reduce((x, y) => x + 1 / Math.max(1, y), 0);
+  const harm = acc.length / acc.reduce((x, y) => x + 1 / Math.max(20, y), 0);
   return (mean + harm) / 2;
 }
