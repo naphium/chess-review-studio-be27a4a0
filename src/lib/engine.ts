@@ -50,6 +50,7 @@ export class Engine {
   private queue: Promise<unknown> = Promise.resolve();
   private epoch = 0;
   private activeReject: ((error: Error) => void) | null = null;
+  private disposeInitialization: (() => void) | null = null;
   public usingStockfish = false;
 
   constructor() {
@@ -59,6 +60,7 @@ export class Engine {
         const w = new Worker(`/engine/stockfish-19/stockfish-19-single.js#${encodeURIComponent(wasmUrl)}`);
         this.worker = w;
         const timer = setTimeout(() => { w.terminate(); this.worker = null; resolve(false); }, 300000);
+        this.disposeInitialization = () => { clearTimeout(timer); resolve(false); };
         w.onmessage = (e) => {
           const msg = String(e.data);
           if (msg === "uciok") {
@@ -67,11 +69,12 @@ export class Engine {
             w.postMessage("isready");
           } else if (msg === "readyok") {
             clearTimeout(timer);
+            this.disposeInitialization = null;
             this.usingStockfish = true;
             resolve(true);
           }
         };
-        w.onerror = () => { clearTimeout(timer); w.terminate(); this.worker = null; resolve(false); };
+        w.onerror = () => { clearTimeout(timer); this.disposeInitialization = null; w.terminate(); this.worker = null; resolve(false); };
         w.postMessage("uci");
         loadModule(wasmUrl).then((wasmModule) => {
           try { w.postMessage({ wasmModule }); } catch { w.postMessage({ wasmModule: null }); }
@@ -152,6 +155,11 @@ export class Engine {
           });
           const top = lines[1];
           if (!top || !out.length) { fail(new Error("The engine returned no complete evaluation.")); return; }
+          const expectedLines = Math.min(2, c.moves().length);
+          if ([1, 2].slice(0, expectedLines).some((k) => !lines[k] || lines[k].depth < depth)) {
+            fail(new Error("The engine returned an incomplete search. Retry the review; no reduced-depth results were used."));
+            return;
+          }
           const result: PositionEval = { score: out[0].score, lines: out, source: "stockfish", depth: top.depth };
           if (top.depth >= depth) {
             if (cache.size >= 2000) { const first = cache.keys().next().value; if (first) cache.delete(first); }
@@ -174,9 +182,12 @@ export class Engine {
 
   terminate() {
     this.epoch++;
+    this.disposeInitialization?.();
+    this.disposeInitialization = null;
     this.activeReject?.(new Error("Search cancelled"));
     this.worker?.terminate();
     this.worker = null;
+    this.usingStockfish = false;
   }
 }
 

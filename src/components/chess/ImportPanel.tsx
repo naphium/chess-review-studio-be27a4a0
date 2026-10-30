@@ -210,9 +210,9 @@ export function ImportPanel({
               </div>
             </div>
           )}
-          {error && <p className="mt-3 rounded-md bg-destructive/15 px-3 py-2 text-sm text-destructive">{error}</p>}
         </div>
       )}
+      {error && <p role="alert" className="mt-3 rounded-md bg-destructive/15 px-3 py-2 text-sm text-destructive">{error}</p>}
     </div>
   );
 }
