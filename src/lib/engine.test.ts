@@ -103,7 +103,7 @@ describe("quality-preserving engine", () => {
   });
   it("settles readiness and queued work when terminated during loading", async () => {
     vi.stubGlobal("Worker", class extends FakeWorker {
-      postMessage(command: string | object) { if (typeof command === "string") this.commands.push(command); }
+      override postMessage(command: string | object) { if (typeof command === "string") this.commands.push(command); }
     });
     const engine = new Engine();
     const result = engine.analyze(new Chess().fen(), 20);
