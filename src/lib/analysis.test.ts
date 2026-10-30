@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Chess } from "chess.js";
-import { classifyMove } from "./analysis";
+import { classifyMove, sacrificedMaterial } from "./analysis";
 
 describe("classifyMove", () => {
   it("gives the engine's top move 100% accuracy even if the next eval drops", () => {
@@ -15,6 +15,37 @@ describe("classifyMove", () => {
 });
 
 describe("book and brilliant", () => {
+  const bxe6 = () => new Chess("r4rk1/ppqn1ppp/2p1pnb1/6N1/2BP4/1Q2P2P/PP1N1PP1/R4RK1 w - - 7 14").move("Bxe6");
+
+  it("recognizes QCx7WsmF 14. Bxe6 as a sound bishop-for-two-pawns sacrifice", () => {
+    const move = bxe6();
+    const before = { score: { cp: 63 }, lines: [{ uci: "c4e6", san: "Bxe6", score: { cp: 63 }, pv: ["Bxe6", "fxe6", "Nxe6"] }] };
+    const after = { score: { cp: 62 }, lines: [] };
+    expect(sacrificedMaterial(move)).toBe(1);
+    expect(classifyMove(move, before, after).cls).toBe("brilliant");
+  });
+
+  it("does not reward the same sacrifice when the engine says it loses", () => {
+    const before = { score: { cp: 63 }, lines: [{ uci: "g5f3", san: "Ngf3", score: { cp: 63 }, pv: [] }] };
+    expect(classifyMove(bxe6(), before, { score: { cp: -400 }, lines: [] }).cls).toBe("blunder");
+  });
+
+  it("does not mark an undefended pawn as a brilliant piece sacrifice", () => {
+    const move = new Chess("4k3/8/8/8/1p6/8/P7/4K3 w - - 0 1").move("a3");
+    const ev = { score: { cp: 0 }, lines: [{ uci: "a2a3", san: "a3", score: { cp: 0 }, pv: [] }] };
+    expect(sacrificedMaterial(move)).toBe(0);
+    expect(classifyMove(move, ev, ev).cls).toBe("best");
+  });
+
+  it("does not mark an equal bishop trade as brilliant", () => {
+    const move = new Chess("rnbqk1nr/pppp1ppp/8/2b1p3/2B1P3/8/PPPP1PPP/RNBQK1NR w KQkq - 0 1").move("Bxf7+");
+    // Kxf7 cannot be recaptured: bishop for pawn remains a sacrifice.
+    // Use an actual equal trade instead.
+    const trade = new Chess("4k3/8/8/3b4/2B5/8/8/4K3 w - - 0 1").move("Bxd5");
+    const ev = { score: { cp: 0 }, lines: [{ uci: "c4d5", san: trade.san, score: { cp: 0 }, pv: [] }] };
+    expect(classifyMove(trade, ev, ev).cls).toBe("best");
+  });
+
   it("tags opening theory as book with no accuracy penalty", async () => {
     const { bookFlags } = await import("./book");
     expect(bookFlags(["e4", "e5", "Nf3", "Nc6", "Bb5", "h5"])).toEqual([true, true, true, true, true, false]);
