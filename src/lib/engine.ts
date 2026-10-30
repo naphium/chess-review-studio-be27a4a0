@@ -6,6 +6,7 @@ export type Line = { uci: string; san: string; score: Score; pv: string[] };
 export type EvalSource = "stockfish" | "terminal";
 export type PositionEval = { score: Score; lines: Line[]; source?: EvalSource; depth?: number };
 export const SEARCH_DEPTH = 18;
+export const STOCKFISH_CDN_URL = "https://unpkg.com/stockfish@19.0.1/bin/stockfish-19-single.wasm";
 
 export function scoreToNum(s: Score): number {
   if (s.mate !== undefined) return s.mate === 0 ? 0 : Math.sign(s.mate) * (10000 - Math.abs(s.mate) * 10);
@@ -56,7 +57,12 @@ export class Engine {
   constructor() {
     this.ready = new Promise((resolve) => {
       try {
-        const wasmUrl = new URL(engineAsset.url, window.location.origin).href;
+        // Lovable's /__l5e asset path only exists on Lovable hosting; use the public CDN copy
+        // of the identical Stockfish 19.0.1 binary elsewhere (e.g. Vercel).
+        const onLovable = /(^|\.)lovable\.(app|dev)$/.test(window.location.hostname) || window.location.hostname === "localhost";
+        const wasmUrl = onLovable
+          ? new URL(engineAsset.url, window.location.origin).href
+          : STOCKFISH_CDN_URL;
         const w = new Worker(`/engine/stockfish-19/stockfish-19-single.js#${encodeURIComponent(wasmUrl)}`);
         this.worker = w;
         const timer = setTimeout(() => { w.terminate(); this.worker = null; resolve(false); }, 300000);
