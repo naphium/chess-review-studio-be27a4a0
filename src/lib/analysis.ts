@@ -57,7 +57,7 @@ function evalNum(e: PositionEval, fen: string): number {
 }
 
 /**
- * Material the mover leaves en prise after the move: the most the opponent can win
+ * Piece material the mover leaves en prise after the move: the most the opponent can win
  * with a single capture (simple exchange: captured value minus recapture risk).
  */
 export function sacrificedMaterial(move: Move): number {
@@ -65,7 +65,8 @@ export function sacrificedMaterial(move: Move): number {
   const me = move.color;
   let best = 0;
   for (const r of c.moves({ verbose: true })) {
-    if (!r.captured) continue;
+    // Brilliant requires risking a piece, not merely an undefended pawn.
+    if (!r.captured || r.captured === "p") continue;
     const gained = VAL[r.captured];
     c.move(r);
     const defended = c.isAttacked(r.to, me);
@@ -99,7 +100,9 @@ export function classifyMove(move: Move, before: PositionEval, after: PositionEv
     const second = before.lines[1] ? cap(scoreToNum(before.lines[1].score) * sign) : null;
     // Brilliant (Chess.com style): a sound sacrifice — real material is left en prise,
     // the move is still (near) best, the position stays good, and we weren't already totally winning.
-    const sacrifice = !move.promotion && sacrificedMaterial(move) >= 2;
+    // A bishop for two pawns still concedes material (3 - 1 - 1 = 1).
+    // Requiring two points incorrectly excluded these sound sacrifices.
+    const sacrifice = !move.promotion && sacrificedMaterial(move) >= 1;
     if (sacrifice && a >= -50 && b < 700) cls = "brilliant";
     else if (isBest && second !== null && b - second >= 150 && a > -200) cls = "great";
   } else if (wl < 3) cls = "excellent";
